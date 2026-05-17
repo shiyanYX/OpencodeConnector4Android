@@ -53,3 +53,7 @@ release/
 
 # Node.js
 node_modules/
+
+# AI knowledge base (local only)
+AGENTS.md
+**/AGENTS.md
