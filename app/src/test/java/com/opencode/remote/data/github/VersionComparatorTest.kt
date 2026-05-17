@@ -41,7 +41,8 @@ class VersionComparatorTest {
     }
 
     @Test
-    fun `tag without v prefix works`() {
-        assertTrue(VersionComparator.isNewer("1.1.1", "1.1.2"))
+    fun `tag without v prefix returns false`() {
+        // Tags without 'v' prefix are rejected by PURE_VERSION_REGEX
+        assertFalse(VersionComparator.isNewer("1.1.1", "1.1.2"))
     }
 }

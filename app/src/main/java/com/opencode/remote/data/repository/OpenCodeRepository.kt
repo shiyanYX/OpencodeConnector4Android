@@ -7,6 +7,7 @@ import com.opencode.remote.data.api.OConnectorApiClient
 import com.opencode.remote.data.api.OConnectorSseClient
 import com.opencode.remote.data.api.dto.*
 import com.opencode.remote.data.datastore.ConnectionConfig
+import com.opencode.remote.data.network.NetworkMonitor
 import com.opencode.remote.service.SseForegroundService
 import com.opencode.remote.ui.chat.ResponseSegment
 import com.opencode.remote.ui.chat.PermissionRequestData
@@ -35,6 +36,7 @@ data class StreamingState(
  */
 interface OConnectorRepository {
     val isConnected: Boolean
+    val currentGeneration: Long
 
     fun connect(config: ConnectionConfig)
     fun disconnect()
@@ -143,11 +145,15 @@ class OConnectorRepositoryImpl @Inject constructor(
     private val sseClient: OConnectorSseClient,
     @ApplicationContext private val context: Context,
     private val json: Json,
+    private val networkMonitor: NetworkMonitor,
 ) : OConnectorRepository {
 
     companion object {
         private const val TAG = "OConnectorRepository"
     }
+
+    private val connectionGeneration = java.util.concurrent.atomic.AtomicLong(0)
+    override val currentGeneration: Long get() = connectionGeneration.get()
 
     private var connected = false
     private var cachedAgents: List<AgentInfo>? = null
@@ -269,22 +275,35 @@ class OConnectorRepositoryImpl @Inject constructor(
      * Clients are provided by Hilt; this configures them with connection parameters.
      */
     override fun connect(config: ConnectionConfig) {
+        if (connected) disconnect()
         val scheme = if (config.useTls) "https" else "http"
         val baseUrl = "$scheme://${config.host}:${config.port}"
 
         apiClient.configure(baseUrl, config.username, config.password, config.insecureTrust)
         sseClient.configure(baseUrl, config.username, config.password, config.autoReconnect, config.insecureTrust)
         connected = true
-        SseForegroundService.start(context)
+        val gen = connectionGeneration.incrementAndGet()
+        SseForegroundService.start(context, gen)
+
+        networkMonitor.onNetworkAvailable = {
+            if (connected) {
+                Log.d(TAG, "Network recovered, restarting SSE")
+                val restartGen = connectionGeneration.incrementAndGet()
+                SseForegroundService.restart(context, restartGen)
+            }
+        }
+        networkMonitor.start()
     }
 
     /**
      * Disconnect from the server.
      */
     override fun disconnect() {
-        apiClient.close()
-        sseClient.close()
-        SseForegroundService.stop(context)
+        networkMonitor.stop()
+        networkMonitor.onNetworkAvailable = null
+        try { apiClient.close() } catch (_: Exception) {}
+        try { sseClient.close() } catch (_: Exception) {}
+        try { SseForegroundService.stop(context) } catch (_: Exception) {}
         connected = false
         cachedAgents = null
         cachedModels = null

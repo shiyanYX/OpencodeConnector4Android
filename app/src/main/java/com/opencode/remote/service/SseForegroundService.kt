@@ -39,13 +39,18 @@ class SseForegroundService : Service() {
             startForeground(NOTIFICATION_ID, notification)
         }
 
+        val generation = intent?.getLongExtra("generation", 0L) ?: 0L
+
+        // Activate generation on event bus — filters stale events at source
+        eventBus.activateGeneration(generation)
+
         // Cancel existing SSE collection if any (handles server switch)
         sseJob?.cancel()
 
         sseJob = appScope.launch {
             try {
                 sseClient.subscribeToEvents().collect { event ->
-                    eventBus.emit(event)
+                    eventBus.emit(event, generation)
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "SSE collection stopped: ${e.message}")
@@ -87,14 +92,32 @@ class SseForegroundService : Service() {
         private const val TAG = "SseForegroundService"
         const val NOTIFICATION_ID = 1001
 
-        fun start(context: Context) {
+        @Volatile
+        private var lastRestartTime: Long = 0L
+        private const val RESTART_DEBOUNCE_MS = 3000L
+
+        fun start(context: Context, generation: Long = 0L) {
             val intent = Intent(context, SseForegroundService::class.java)
+            intent.putExtra("generation", generation)
             context.startForegroundService(intent)
         }
 
         fun stop(context: Context) {
             val intent = Intent(context, SseForegroundService::class.java)
             context.stopService(intent)
+        }
+
+        fun restart(context: Context, generation: Long = 0L) {
+            synchronized(this) {
+                val now = System.currentTimeMillis()
+                if (now - lastRestartTime < RESTART_DEBOUNCE_MS) {
+                    Log.d(TAG, "Restart debounced (${now - lastRestartTime}ms since last)")
+                    return
+                }
+                lastRestartTime = now
+            }
+            stop(context)
+            start(context, generation)
         }
     }
 }

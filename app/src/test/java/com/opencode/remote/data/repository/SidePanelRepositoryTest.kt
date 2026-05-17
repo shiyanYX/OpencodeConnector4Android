@@ -4,6 +4,7 @@ import android.content.Context
 import com.opencode.remote.data.api.OConnectorApiClient
 import com.opencode.remote.data.api.OConnectorSseClient
 import com.opencode.remote.data.api.dto.*
+import com.opencode.remote.data.network.NetworkMonitor
 import com.opencode.remote.service.SseForegroundService
 import io.mockk.clearAllMocks
 import io.mockk.coEvery
@@ -11,6 +12,7 @@ import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
+import kotlinx.serialization.json.Json
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -30,6 +32,8 @@ class SidePanelRepositoryTest {
     private lateinit var apiClient: OConnectorApiClient
     private lateinit var sseClient: OConnectorSseClient
     private lateinit var context: Context
+    private lateinit var json: Json
+    private lateinit var networkMonitor: NetworkMonitor
     private lateinit var repository: OConnectorRepositoryImpl
 
     @Before
@@ -38,7 +42,9 @@ class SidePanelRepositoryTest {
         apiClient = mockk(relaxed = true)
         sseClient = mockk(relaxed = true)
         context = mockk(relaxed = true)
-        repository = OConnectorRepositoryImpl(apiClient, sseClient, context)
+        json = Json { ignoreUnknownKeys = true }
+        networkMonitor = mockk(relaxed = true)
+        repository = OConnectorRepositoryImpl(apiClient, sseClient, context, json, networkMonitor)
 
         // Set connected=true via reflection to bypass connect()
         // (which requires Android framework classes for SseForegroundService)

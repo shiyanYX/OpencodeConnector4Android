@@ -2,6 +2,16 @@
 
 All notable changes to OConnector will be documented in this file.
 
+## [1.3.1] - 2026-05-18
+
+### Added
+
+- **SSE Connection Generation** — every `connect()` now increments an `AtomicLong` generation counter. SSE events are wrapped in `EventEnvelope(generation)` and filtered at two layers: `SseEventBus` drops stale events (gen < activeGeneration), ViewModels apply "upward-following" strategy (gen >= subscribedGeneration passes). Prevents stale events from disconnected servers from polluting the UI after rapid server switching or reconnect.
+- **Network state monitoring** — new `NetworkMonitor` class using `ConnectivityManager.NetworkCallback`. When the device regains network connectivity after a loss, it automatically triggers `SseForegroundService.restart()` to re-establish the SSE connection. Recovery is debounced at 3 seconds to prevent reconnect storms.
+- **SSE restart with debounce** — `SseForegroundService.restart()` uses `synchronized` + `@Volatile lastRestartTime` with a 3-second debounce threshold. Prevents multiple rapid restarts from concurrent network state callbacks.
+- **Idempotent connect/disconnect** — `connect()` now calls `disconnect()` first if already connected (idempotent guard). `disconnect()` wraps each cleanup step in individual try-catch to prevent partial cleanup failures from blocking the rest.
+- **Comprehensive test coverage** — new tests for `SseEventBus` (generation filtering, activation), `OConnectorRepository` (generation monotonic counter, connect lifecycle), `NetworkMonitor` (start/stop guards, callback invocation), `OConnectorSseClient` (generation passed to events), `ChatViewModel` (subscribed generation filtering, upward-following), `SseForegroundService` (restart debounce, generation pass-through).
+
 ## [1.3.0] - 2026-05-16
 
 ### Added

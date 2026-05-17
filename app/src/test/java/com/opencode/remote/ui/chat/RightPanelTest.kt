@@ -6,7 +6,6 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import com.opencode.remote.data.api.dto.FileNode
-import com.opencode.remote.data.api.dto.ModelInfo
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -29,11 +28,6 @@ class RightPanelTest {
                 currentPath = "/projects/my-app",
                 onNavigateToDirectory = {},
                 isLoadingFiles = false,
-                selectedModel = null,
-                availableModels = emptyList(),
-                onSelectModel = {},
-                isLoadingModels = false,
-                contextUsageK = "0K",
             )
         }
         composeTestRule.onNodeWithText("/projects/my-app").assertIsDisplayed()
@@ -51,34 +45,10 @@ class RightPanelTest {
                 currentPath = "/",
                 onNavigateToDirectory = {},
                 isLoadingFiles = false,
-                selectedModel = null,
-                availableModels = emptyList(),
-                onSelectModel = {},
-                isLoadingModels = false,
-                contextUsageK = "0K",
             )
         }
         composeTestRule.onNodeWithText("src").assertIsDisplayed()
         composeTestRule.onNodeWithText("README.md").assertIsDisplayed()
-    }
-
-    @Test
-    fun `displays model selector and context`() {
-        composeTestRule.setContent {
-            RightPanel(
-                files = emptyList(),
-                currentPath = "/",
-                onNavigateToDirectory = {},
-                isLoadingFiles = false,
-                selectedModel = null,
-                availableModels = emptyList(),
-                onSelectModel = {},
-                isLoadingModels = false,
-                contextUsageK = "64K",
-            )
-        }
-        composeTestRule.onNodeWithText("Default").assertIsDisplayed()
-        composeTestRule.onNodeWithText("64K").assertIsDisplayed()
     }
 
     @Test
@@ -93,11 +63,6 @@ class RightPanelTest {
                 currentPath = "/",
                 onNavigateToDirectory = { navigatedTo = it },
                 isLoadingFiles = false,
-                selectedModel = null,
-                availableModels = emptyList(),
-                onSelectModel = {},
-                isLoadingModels = false,
-                contextUsageK = "0K",
             )
         }
         composeTestRule.onNodeWithTag("file_item_src").performClick()

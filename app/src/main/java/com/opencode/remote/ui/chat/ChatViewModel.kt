@@ -422,13 +422,25 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    private var subscribedGeneration: Long = 0L
+
     private fun subscribeToEvents() {
+        subscribedGeneration = repository.currentGeneration
         sseJob?.cancel()
         sseJob = viewModelScope.launch {
             try {
-                sseEventBus.events.collect { event ->
+                sseEventBus.events.collect { envelope ->
+                    // Discard events from older connections
+                    if (envelope.generation < subscribedGeneration) {
+                        Log.d(TAG, "Discarding stale event gen=${envelope.generation} (subscribed=$subscribedGeneration)")
+                        return@collect
+                    }
+                    // Follow upward — update to newer generation
+                    if (envelope.generation > subscribedGeneration) {
+                        subscribedGeneration = envelope.generation
+                    }
                     lastSseEventTime = System.currentTimeMillis()
-                    handleEvent(event)
+                    handleEvent(envelope.event)
                 }
             } catch (e: Exception) {
                 if (e !is CancellationException) {

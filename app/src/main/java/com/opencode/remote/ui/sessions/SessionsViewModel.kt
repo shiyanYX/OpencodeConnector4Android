@@ -259,8 +259,8 @@ class SessionsViewModel @Inject constructor(
     private fun subscribeToSseEvents() {
         sseJob = viewModelScope.launch {
             try {
-                sseEventBus.events.collect { event ->
-                    val type = event.payload.type
+                sseEventBus.events.collect { envelope ->
+                    val type = envelope.event.payload.type
                     if (type == "session.updated" || type == "session.created") {
                         Log.d(TAG, "SSE session event: $type, refreshing sessions")
                         loadSessions()

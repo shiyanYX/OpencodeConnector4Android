@@ -5,6 +5,7 @@ import com.opencode.remote.data.api.OConnectorApiClient
 import com.opencode.remote.data.api.OConnectorSseClient
 import com.opencode.remote.data.datastore.MemoManager
 import com.opencode.remote.data.datastore.ServerManager
+import com.opencode.remote.data.network.NetworkMonitor
 import com.opencode.remote.data.repository.OConnectorRepository
 import com.opencode.remote.data.repository.OConnectorRepositoryImpl
 import dagger.Binds
@@ -68,5 +69,11 @@ abstract class AppModule {
             @ApplicationContext context: Context,
             json: Json,
         ): MemoManager = MemoManager(context, json)
+
+        @Provides
+        @Singleton
+        fun provideNetworkMonitor(
+            @ApplicationContext context: Context,
+        ): NetworkMonitor = NetworkMonitor(context)
     }
 }

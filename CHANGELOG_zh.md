@@ -2,6 +2,16 @@
 
 OConnector 的所有重要变更都会记录在此文件中。
 
+## [1.3.1] - 2026-05-18
+
+### 新增
+
+- **SSE 连接代次（Connection Generation）** — 每次 `connect()` 自增 `AtomicLong` 代次计数器。SSE 事件封装为 `EventEnvelope(generation)`，在两层过滤：`SseEventBus` 丢弃过期事件（gen < activeGeneration），ViewModel 使用「向上跟随」策略（gen >= subscribedGeneration 通过）。防止快速切换服务器或重连时，已断开服务器的过期事件污染当前 UI。
+- **网络状态监听** — 新增 `NetworkMonitor` 类，使用 `ConnectivityManager.NetworkCallback`。设备恢复网络后自动触发 `SseForegroundService.restart()` 重建 SSE 连接。恢复重连带 3 秒防抖，避免重连风暴。
+- **SSE 重启防抖** — `SseForegroundService.restart()` 使用 `synchronized` + `@Volatile lastRestartTime`，3 秒内仅执行一次重启。防止并发网络回调触发多次重连。
+- **幂等连接/断开** — `connect()` 在已连接状态下先调用 `disconnect()`（幂等守卫）。`disconnect()` 每个清理步骤独立 try-catch，部分清理失败不会阻断后续步骤。
+- **完善测试覆盖** — 新增测试：`SseEventBus`（代次过滤、激活）、`OConnectorRepository`（代次单调递增、连接生命周期）、`NetworkMonitor`（启停守卫、回调触发）、`OConnectorSseClient`（代次传递）、`ChatViewModel`（订阅代次过滤、向上跟随）、`SseForegroundService`（重启防抖、代次传递）。
+
 ## [1.3.0] - 2026-05-16
 
 ### 新增
