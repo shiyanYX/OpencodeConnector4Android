@@ -12,6 +12,10 @@ OConnector 的所有重要变更都会记录在此文件中。
 - **幂等连接/断开** — `connect()` 在已连接状态下先调用 `disconnect()`（幂等守卫）。`disconnect()` 每个清理步骤独立 try-catch，部分清理失败不会阻断后续步骤。
 - **完善测试覆盖** — 新增测试：`SseEventBus`（代次过滤、激活）、`OConnectorRepository`（代次单调递增、连接生命周期）、`NetworkMonitor`（启停守卫、回调触发）、`OConnectorSseClient`（代次传递）、`ChatViewModel`（订阅代次过滤、向上跟随）、`SseForegroundService`（重启防抖、代次传递）。
 
+### 修复
+
+- **Agent 切换按钮消失** — 自定义 agent 从服务端返回的 `"hidden"` 字段可能是 `null`（未设置时），而 `AgentInfo.hidden` 声明为非空 `Boolean`，导致 kotlinx.serialization 抛出 `SerializationException`，整个 agent 列表解析失败。将 `hidden` 改为 `Boolean?`，过滤逻辑改为 `it.hidden != true`。配置自定义 agent 后 Agent 选择按钮可正常显示。
+
 ## [1.3.0] - 2026-05-16
 
 ### 新增

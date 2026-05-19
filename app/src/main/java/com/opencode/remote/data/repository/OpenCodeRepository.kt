@@ -394,7 +394,7 @@ class OConnectorRepositoryImpl @Inject constructor(
             return cachedAgents!!
         }
         val agents = requireClient().listAgents()
-            .filter { it.mode != "subagent" && !it.hidden }
+            .filter { it.mode != "subagent" && it.hidden != true }
         cachedAgents = agents
         agentsCacheTime = System.currentTimeMillis()
         return agents

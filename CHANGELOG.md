@@ -12,6 +12,10 @@ All notable changes to OConnector will be documented in this file.
 - **Idempotent connect/disconnect** — `connect()` now calls `disconnect()` first if already connected (idempotent guard). `disconnect()` wraps each cleanup step in individual try-catch to prevent partial cleanup failures from blocking the rest.
 - **Comprehensive test coverage** — new tests for `SseEventBus` (generation filtering, activation), `OConnectorRepository` (generation monotonic counter, connect lifecycle), `NetworkMonitor` (start/stop guards, callback invocation), `OConnectorSseClient` (generation passed to events), `ChatViewModel` (subscribed generation filtering, upward-following), `SseForegroundService` (restart debounce, generation pass-through).
 
+### Fixed
+
+- **Agent picker button missing** — custom agents from the server may return `"hidden": null` instead of `false`. Since `AgentInfo.hidden` was declared as non-nullable `Boolean`, kotlinx.serialization threw `SerializationException` and the entire agent list failed to parse. Changed `hidden` to `Boolean?` and updated the filter to `it.hidden != true`. The agent picker button now appears correctly when custom agents are configured.
+
 ## [1.3.0] - 2026-05-16
 
 ### Added

@@ -30,15 +30,15 @@ data class ProjectSandbox(
 /**
  * 实际 API: GET /agent → 返回数组
  * 字段: name, mode, description, hidden, ...
- * mode: "primary" | "subagent"
- * hidden: true 时不在 UI 显示
+ * mode: "primary" | "subagent" | "all"
+ * hidden: true 时不在 UI 显示，自定义 agent 可能为 null
  */
 @Serializable
 data class AgentInfo(
     val name: String,
     val mode: String? = null,
     val description: String? = null,
-    val hidden: Boolean = false,
+    val hidden: Boolean? = false,
     val model: AgentModel? = null,
 )
 

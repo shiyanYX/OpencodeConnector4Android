@@ -120,7 +120,7 @@ class SidePanelDtoTest {
         val agent = json.decodeFromString<AgentInfo>(input)
         assertEquals("hidden-agent", agent.name)
         assertEquals("subagent", agent.mode)
-        assertTrue(agent.hidden)
+        assertTrue(agent.hidden == true)
     }
 
     @Test
