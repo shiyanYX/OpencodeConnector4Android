@@ -15,6 +15,7 @@ All notable changes to OConnector will be documented in this file.
 ### Fixed
 
 - **Agent picker button missing** — custom agents from the server may return `"hidden": null` instead of `false`. Since `AgentInfo.hidden` was declared as non-nullable `Boolean`, kotlinx.serialization threw `SerializationException` and the entire agent list failed to parse. Changed `hidden` to `Boolean?` and updated the filter to `it.hidden != true`. The agent picker button now appears correctly when custom agents are configured.
+- **Recovery bubble false positive** — when the AI is actively working in TUI, the mobile app incorrectly showed a "Session Interrupted" recovery bubble because the last assistant message had no `completed` timestamp. Clicking "Check Status" re-triggered the same heuristic, causing an infinite loop. Fixed by checking session completion status: recovery is only triggered when the session itself is completed but the last assistant message isn't — confirming a true interruption, not active work.
 
 ## [1.3.0] - 2026-05-16
 

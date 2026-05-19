@@ -1529,14 +1529,28 @@ class ChatViewModel @Inject constructor(
             return
         }
 
-        // Last assistant has no completed timestamp = AI was interrupted mid-work
-        // (question or permission or any blocking state — all show as incomplete message)
-        Log.d(TAG, "checkSessionBlocking: last assistant incomplete (no completed timestamp), triggering recovery")
-        _uiState.update { it.copy(chatDisplay = it.chatDisplay.copy(
-            isBlocked = true,
-            recoveryPending = true,
-        ))}
-        startBlockingWatchdog()
+        // Last assistant has no completed timestamp. Before triggering recovery,
+        // verify the session itself has completed — if it hasn't, the AI is still
+        // actively working (e.g., in TUI) and this is NOT an interrupted state.
+        viewModelScope.launch {
+            try {
+                val session = repository.getSession(_uiState.value.sessionId, _uiState.value.sessionDirectory)
+                val sessionCompleted = session.time?.completed != null && session.time.completed > 0
+                if (!sessionCompleted) {
+                    Log.d(TAG, "checkSessionBlocking: session not completed, AI may still be working — skipping recovery")
+                    return@launch
+                }
+                // Session completed but last assistant isn't — AI was interrupted
+                Log.d(TAG, "checkSessionBlocking: session completed but assistant incomplete, triggering recovery")
+                _uiState.update { it.copy(chatDisplay = it.chatDisplay.copy(
+                    isBlocked = true,
+                    recoveryPending = true,
+                ))}
+                startBlockingWatchdog()
+            } catch (e: Exception) {
+                Log.w(TAG, "checkSessionBlocking: failed to check session status, skipping recovery", e)
+            }
+        }
     }
 
     /** Dismiss recovery/heuristic blocking state — user chose to ignore. */
@@ -1578,6 +1592,8 @@ class ChatViewModel @Inject constructor(
         }
 
         // Step 2: Load messages from server and run heuristic
+        // (checkSessionBlocking now also checks session completion to avoid
+        // false positives when AI is actively working in TUI)
         viewModelScope.launch {
             try {
                 val messages = repository.getMessages(sessionId, _uiState.value.sessionDirectory)

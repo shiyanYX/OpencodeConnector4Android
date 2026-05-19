@@ -15,6 +15,7 @@ OConnector 的所有重要变更都会记录在此文件中。
 ### 修复
 
 - **Agent 切换按钮消失** — 自定义 agent 从服务端返回的 `"hidden"` 字段可能是 `null`（未设置时），而 `AgentInfo.hidden` 声明为非空 `Boolean`，导致 kotlinx.serialization 抛出 `SerializationException`，整个 agent 列表解析失败。将 `hidden` 改为 `Boolean?`，过滤逻辑改为 `it.hidden != true`。配置自定义 agent 后 Agent 选择按钮可正常显示。
+- **恢复气泡误触发** — 当 AI 在 TUI 端活跃工作时，手机 App 错误地显示「会话中断」恢复气泡，因为最后一条 assistant 消息没有 `completed` 时间戳。点击「检查状态」会重复触发相同启发式判断，导致无限循环。修复：增加 session 完成状态检查——仅在 session 已完成但最后一条 assistant 未完成时才触发恢复，区分「AI 正在工作」和「AI 被中断」。
 
 ## [1.3.0] - 2026-05-16
 
