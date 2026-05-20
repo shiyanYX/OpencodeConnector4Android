@@ -242,6 +242,83 @@ Body: {}
 
 **Response**: `SessionInfo` (with `revert` cleared)
 
+#### `GET /session/status` — Get Real-Time Status of All Sessions
+
+Returns the current status of ALL sessions in a single call. Useful for polling without fetching full message lists.
+
+```
+GET /session/status?directory=<path>
+```
+
+**Response**: `Record<string, "busy" | "idle">`
+
+```json
+{
+  "ses_abc123": "busy",
+  "ses_def456": "idle"
+}
+```
+
+#### `GET /session/{id}/children` — Get Child Sessions
+
+Returns all direct child sessions (forks) of a parent session.
+
+```
+GET /session/{id}/children?directory=<path>
+```
+
+**Response**: `List<SessionInfo>`
+
+#### `POST /session/{id}/summarize` — AI Summarization
+
+Triggers an AI-generated session summary.
+
+```
+POST /session/{id}/summarize?directory=<path>
+Body: { "providerID": "anthropic", "modelID": "claude-sonnet-4-20250514" }
+```
+
+**Response**: `SessionInfo` (with updated `summary`)
+
+#### `POST /session/{id}/share` — Create Share Link
+
+Creates a shareable link for the session.
+
+```
+POST /session/{id}/share
+Body: {}
+```
+
+**Response**: `{ "id": "share_xxx", "createdAt": 1700000000, "expiresAt": null }`
+
+#### `DELETE /session/{id}/share` — Remove Share Link
+
+```
+DELETE /session/{id}/share
+Body: {}
+```
+
+#### `POST /session/{id}/command` — Execute Slash Command
+
+Runs a server-side slash command within a session context.
+
+```
+POST /session/{id}/command
+Body: { "command": "compact", "arguments": "" }
+```
+
+Common commands: `compact`, `new`, `agent_cycle`, `theme`.
+
+#### `PATCH /session/{id}` — Update Session
+
+Update session metadata.
+
+```
+PATCH /session/{id}?directory=<path>
+Body: { "title": "New title" }
+Body: { "time": { "archived": 1700000000 } }
+```
+
 ---
 
 ### 4.2 Message Operations
@@ -355,6 +432,16 @@ POST /session/{id}/prompt_async?directory=<path>
 
 > **Note**: Newer OpenCode builds may also support `POST /session/{id}/message` with the same body. Use `prompt_async` as the fallback.
 
+#### `GET /session/{id}/message/{msgId}` — Get Single Message
+
+Fetch one specific message by ID instead of the full list.
+
+```
+GET /session/{id}/message/{msgId}?directory=<path>
+```
+
+**Response**: `MessageInfo`
+
 ---
 
 ### 4.3 Todo
@@ -449,7 +536,7 @@ GET /agent
 | `mode` | `"primary"`, `"subagent"` | Primary agents can run independently; subagents are invoked by primary agents |
 | `hidden` | boolean | `true` = internal utility agent, should not be shown in UI picker |
 
-> **Note**: The server may return agents as a JSON array directly, or wrapped in `{"agents": [...]}`, `{"items": [...]}`, or `{"data": [...]}`.
+> **Note**: The latest server returns agents as a JSON array directly. New fields include `hidden` which may be `null` for custom agents, `permission` (array of rules), `color`, `variant`, `options`. Use `ignoreUnknownKeys` in your JSON parser to handle forward-compatibility.
 
 ---
 
@@ -757,6 +844,58 @@ The AI has finished its turn. This is the **primary signal** to stop streaming U
 3. Update context usage from reloaded messages (token data is on individual messages, not on the session)
 4. Refresh todo list
 
+#### `session.created` — New Session Created
+
+Emitted when any client creates a new session. Useful for keeping session lists in sync across clients.
+
+```json
+{
+  "type": "session.created",
+  "properties": { "info": { "id": "ses_xyz", "title": "New Chat", ... } }
+}
+```
+
+#### `session.deleted` — Session Deleted
+
+Emitted when a session is deleted by any client.
+
+```json
+{
+  "type": "session.deleted",
+  "properties": { "info": { "id": "ses_xyz" } }
+}
+```
+
+#### `permission.replied` — Permission Was Answered
+
+Emitted when a permission request is answered (possibly by another client like TUI).
+
+```json
+{
+  "type": "permission.replied",
+  "properties": { "id": "perm_123", "reply": "allow" }
+}
+```
+
+#### `question.replied` / `question.rejected` — Question Was Answered/Dismissed
+
+Emitted when a question is answered or dismissed.
+
+```json
+{
+  "type": "question.replied",
+  "properties": { "id": "q_456", "answers": ["option1"] }
+}
+```
+
+#### `project.updated` — Project Metadata Changed
+
+Emitted when project data changes.
+
+#### `vcs.branch.updated` — Git Branch Changed
+
+Emitted when the git branch changes.
+
 #### Which SSE Events Carry Token Data
 
 | SSE Event | Token Location | When Available |
@@ -980,6 +1119,8 @@ The AI is asking the user one or more questions before proceeding.
 | `time` | SessionTime? | Timestamps |
 | `revert` | SessionRevert? | Undo state (non-null = has active undo) |
 
+> **New fields** (from server v1.13+): `time.archived` (long?), `share` ({ id?, createdAt?, expiresAt? }), `revert.partID` (string? — which specific part was reverted), `permission[]` has `pattern` and `permission` fields for granular file-based permission rules.
+
 ### SessionTime
 
 | Field | Type | Description |
@@ -1063,6 +1204,23 @@ The AI is asking the user one or more questions before proceeding.
 | `callID` | string? | Unique tool call identifier |
 | `state` | ToolState? | Tool execution state |
 
+### Message Part Types (Full List)
+
+| Type | Description | Fields |
+|------|-------------|--------|
+| `text` | Regular text content | `text` |
+| `reasoning` | Thinking/chain-of-thought | `text` |
+| `tool` | Tool call/result | `name`, `callID`, `input`, `state` |
+| `step-start` | New step beginning | `token?` |
+| `step-finish` | Step completed | `token`, `reason?` |
+| `file` | File attachment | `name`, `path`, `content?` |
+| `agent` | Agent mention/reference | `name`, `description?` |
+| `snapshot` | File snapshot (before changes) | `file`, `snapshot` |
+| `patch` | File diff/patch (changes) | `file`, `patch`, `additions`, `deletions` |
+| `retry` | Retry indicator | `reason?` |
+| `compaction` | Context compaction | `summary?` |
+| `subtask` | Subtask start/result | `id`, `prompt?`, `result?` |
+
 ### ToolState
 
 | Field | Type | Description |
@@ -1122,13 +1280,22 @@ The AI is asking the user one or more questions before proceeding.
 
 ### AgentInfo
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `name` | string | Agent name (e.g. `"code"`, `"ask"`) |
-| `mode` | string? | `"primary"` or `"subagent"` |
-| `description` | string? | What this agent does |
-| `hidden` | boolean | `true` = internal agent, hide from picker |
-| `model` | AgentModel? | Default model for this agent |
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | string | ✅ | Agent name (e.g., "build", "plan") |
+| `mode` | string | ✅ | `"primary"`, `"subagent"`, or `"all"` |
+| `description` | string | ❌ | Human-readable description |
+| `hidden` | boolean\|null | ❌ | `true` = internal utility agent. Custom agents may return `null` |
+| `native` | boolean | ❌ | `true` = built-in agent |
+| `permission` | array | ❌ | Default permission rules: `[{ "permission": "*", "pattern": "*", "action": "allow" }]` |
+| `model` | object\|null | ❌ | Pinned default model: `{ "modelID": "...", "providerID": "..." }` |
+| `variant` | string | ❌ | Agent variant (e.g., "thinking") |
+| `color` | string | ❌ | Display color for UI (hex) |
+| `prompt` | string | ❌ | System prompt text |
+| `options` | object | ❌ | Free-form key-value options map |
+| `topP` | number | ❌ | Top-p sampling parameter |
+| `temperature` | number | ❌ | Temperature parameter |
+| `steps` | number | ❌ | Max execution steps |
 
 ---
 
