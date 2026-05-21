@@ -238,6 +238,14 @@ data class AppStrings(
     val timeYesterday: String,
     val timeThisWeek: String,
     val timeOlder: String,
+
+    // Search
+    val searchSessions: String,
+    val noSearchResults: String,
+
+    // Status
+    val statusBusy: String,
+    val statusIdle: String,
 )
 
 // ─── English ───────────────────────────────────────────────────────
@@ -462,6 +470,14 @@ val enStrings = AppStrings(
     timeYesterday = "Yesterday",
     timeThisWeek = "This Week",
     timeOlder = "Older",
+
+    // Search
+    searchSessions = "Search sessions...",
+    noSearchResults = "No sessions found",
+
+    // Status
+    statusBusy = "Busy",
+    statusIdle = "Idle",
 )
 
 // ─── Chinese ───────────────────────────────────────────────────────
@@ -686,4 +702,12 @@ val zhStrings = AppStrings(
     timeYesterday = "昨天",
     timeThisWeek = "本周",
     timeOlder = "更早",
+
+    // Search
+    searchSessions = "搜索会话...",
+    noSearchResults = "未找到会话",
+
+    // Status
+    statusBusy = "忙碌",
+    statusIdle = "空闲",
 )

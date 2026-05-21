@@ -11,7 +11,9 @@ import kotlinx.serialization.Serializable
  *
  * Event types observed (verified from captured SSE data):
  *   server.connected     — initial handshake
+ *   session.created      — new session created (properties.sessionID)
  *   session.updated      — session metadata changed (properties.info)
+ *   session.deleted      — session deleted (properties.sessionID)
  *   session.status       — session status transition (properties.status.type = "busy"/"idle")
  *   session.idle         — session became idle
  *   session.diff         — code diff generated
@@ -22,6 +24,11 @@ import kotlinx.serialization.Serializable
  *   message.part.completed — single part finished
  *   sync                 — internal synchronization (syncEvent at payload level, ignore)
  *   session.error        — server error (properties.error)
+ *   permission.replied   — permission response received from TUI (properties.id)
+ *   question.replied     — question answered from TUI (properties.id)
+ *   question.rejected    — question rejected from TUI (properties.id)
+ *   project.updated      — project metadata changed (properties.name, properties.path)
+ *   vcs.branch.updated   — git branch changed (properties.branch, properties.previousBranch)
  *
  * Key streaming fields:
  *   message.part.delta  → properties.delta = incremental text chunk (APPEND)
@@ -63,6 +70,14 @@ data class EventProperties(
     val tool: ToolRef? = null,                           // tool reference {messageID, callID}
     val questions: List<QuestionInfoDto>? = null,        // question definitions
     val status: StatusData? = null,                      // session.status event data
+    // Permission/question reply fields
+    val reply: String? = null,                            // reply value ("once", "always", "reject")
+    // Project metadata fields
+    val name: String? = null,                             // project name (project.updated)
+    val path: String? = null,                             // project path (project.updated)
+    // VCS branch fields
+    val branch: String? = null,                           // current branch name (vcs.branch.updated)
+    val previousBranch: String? = null,                   // previous branch name (vcs.branch.updated)
 )
 
 /** Session status data carried by session.status SSE events. */

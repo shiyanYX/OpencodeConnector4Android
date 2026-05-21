@@ -1,19 +1,28 @@
 package com.opencode.remote.ui.sessions
 
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
@@ -24,11 +33,26 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.opencode.remote.data.api.dto.SessionInfo
+import com.opencode.remote.data.api.dto.SessionSummary
+import com.opencode.remote.data.sessionstore.SessionStatus
 import com.opencode.remote.ui.components.ErrorSnackbar
 import com.opencode.remote.ui.strings.AppLocale
+import com.opencode.remote.ui.util.TimeFormatter
+import com.opencode.remote.ui.util.TimeGroup
+import com.opencode.remote.ui.strings.AppStrings
+
+// ─── TimeGroup label helper ──────────────────────────────────────────
+
+private fun TimeGroup.label(s: AppStrings): String = when (this) {
+    TimeGroup.TODAY -> s.timeToday
+    TimeGroup.YESTERDAY -> s.timeYesterday
+    TimeGroup.THIS_WEEK -> s.timeThisWeek
+    TimeGroup.OLDER -> s.timeOlder
+}
+
 // ─── Level 1: Projects List ──────────────────────────────────────────────
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun SessionsScreen(
     onProjectClick: (String) -> Unit,
@@ -131,19 +155,46 @@ fun SessionsScreen(
                             }
                     }
 
+                    val timeGrouped = remember(grouped) {
+                        grouped
+                            .groupBy { (_, sessions) ->
+                                val latestTs = sessions.maxOfOrNull { it.time?.updated ?: it.time?.created ?: 0L }
+                                if (latestTs != null && latestTs > 0L) TimeFormatter.classifyTimeGroup(latestTs)
+                                else TimeGroup.OLDER
+                            }
+                            .toList()
+                    }
+
                     LazyColumn(
                         contentPadding = PaddingValues(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
-                        items(
-                            items = grouped,
-                            key = { (dir, _) -> dir }
-                        ) { (directory, sessions) ->
-                            ProjectCard(
-                                directory = directory,
-                                sessionCount = sessions.size,
-                                onClick = { onProjectClick(directory) },
-                            )
+                        timeGrouped.forEach { (timeGroup, projects) ->
+                            stickyHeader(key = timeGroup.name) {
+                                Surface(
+                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.9f),
+                                    tonalElevation = 1.dp,
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    Text(
+                                        text = timeGroup.label(s),
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        fontWeight = FontWeight.SemiBold,
+                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                                    )
+                                }
+                            }
+                            items(
+                                items = projects,
+                                key = { (dir, _) -> dir }
+                            ) { (directory, sessions) ->
+                                ProjectCard(
+                                    directory = directory,
+                                    sessionCount = sessions.size,
+                                    onClick = { onProjectClick(directory) },
+                                )
+                            }
                         }
                     }
                 }
@@ -223,7 +274,7 @@ private fun ProjectCard(
 
 // ─── Level 2: Sessions within a Project ──────────────────────────────────
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun ProjectSessionsScreen(
     directory: String,
@@ -268,6 +319,10 @@ fun ProjectSessionsScreen(
         uiState.sessions
             .filter { it.directory == directory }
             .sortedByDescending { it.time?.updated ?: it.time?.created ?: 0L }
+    }
+
+    val timeGroupedSessions = remember(projectSessions) {
+        groupSessionsByTime(projectSessions).toList()
     }
 
     // Outer Box with swipe gesture detection for memo panel
@@ -378,20 +433,106 @@ fun ProjectSessionsScreen(
                         }
 
                         else -> {
-                            LazyColumn(
-                                contentPadding = PaddingValues(16.dp),
-                                verticalArrangement = Arrangement.spacedBy(8.dp),
-                            ) {
-                                items(
-                                    items = projectSessions,
-                                    key = { it.id }
-                                ) { session ->
-                                    SessionCard(
-                                        session = session,
-                                        onClick = { onSessionClick(session.id) },
-                                        onDelete = { viewModel.deleteSession(session.id, directory) },
-                                        onFork = { viewModel.forkSession(session.id, directory) },
-                                    )
+                            val isSearching = uiState.searchQuery.isNotBlank()
+                            val statusMap by viewModel.sessionStatusMap.collectAsState()
+                            val filteredSessions = if (isSearching) {
+                                projectSessions.filter {
+                                    it.title?.contains(uiState.searchQuery, ignoreCase = true) == true
+                                        || it.slug?.contains(uiState.searchQuery, ignoreCase = true) == true
+                                        || it.id.contains(uiState.searchQuery, ignoreCase = true)
+                                }
+                            } else {
+                                emptyList()
+                            }
+
+                            Column(modifier = Modifier.fillMaxSize()) {
+                                // T10: Search bar
+                                OutlinedTextField(
+                                    value = uiState.searchQuery,
+                                    onValueChange = { viewModel.setSearchQuery(it) },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                                    placeholder = { Text(s.searchSessions) },
+                                    leadingIcon = {
+                                        Icon(Icons.Default.Search, contentDescription = null)
+                                    },
+                                    trailingIcon = {
+                                        if (uiState.searchQuery.isNotEmpty()) {
+                                            IconButton(onClick = { viewModel.setSearchQuery("") }) {
+                                                Icon(Icons.Default.Close, contentDescription = null)
+                                            }
+                                        }
+                                    },
+                                    singleLine = true,
+                                    shape = MaterialTheme.shapes.large,
+                                )
+
+                                if (isSearching && filteredSessions.isEmpty()) {
+                                    // T10: No results
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .weight(1f),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        Text(
+                                            text = s.noSearchResults,
+                                            style = MaterialTheme.typography.bodyLarge,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                } else {
+                                    LazyColumn(
+                                        contentPadding = PaddingValues(horizontal = 16.dp),
+                                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                                        modifier = Modifier.weight(1f),
+                                    ) {
+                                        if (isSearching) {
+                                            items(
+                                                items = filteredSessions,
+                                                key = { it.id }
+                                            ) { session ->
+                                                SessionCard(
+                                                    session = session,
+                                                    status = statusMap[session.id],
+                                                    onClick = { onSessionClick(session.id) },
+                                                    onDelete = { viewModel.deleteSession(session.id, directory) },
+                                                    onFork = { viewModel.forkSession(session.id, directory) },
+                                                )
+                                            }
+                                        } else {
+                                            timeGroupedSessions.forEach { (timeGroup, sessions) ->
+                                                stickyHeader(key = "${timeGroup.name}_header") {
+                                                    Surface(
+                                                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.9f),
+                                                        tonalElevation = 1.dp,
+                                                        modifier = Modifier.fillMaxWidth(),
+                                                    ) {
+                                                        Text(
+                                                            text = timeGroup.label(s),
+                                                            style = MaterialTheme.typography.labelMedium,
+                                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                            fontWeight = FontWeight.SemiBold,
+                                                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                                                        )
+                                                    }
+                                                }
+                                                items(
+                                                    items = sessions,
+                                                    key = { it.id }
+                                                ) { session ->
+                                                    SessionCard(
+                                                        session = session,
+                                                        status = statusMap[session.id],
+                                                        onClick = { onSessionClick(session.id) },
+                                                        onDelete = { viewModel.deleteSession(session.id, directory) },
+                                                        onFork = { viewModel.forkSession(session.id, directory) },
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -428,6 +569,7 @@ fun ProjectSessionsScreen(
 @Composable
 private fun SessionCard(
     session: SessionInfo,
+    status: SessionStatus?,
     onClick: () -> Unit,
     onDelete: () -> Unit,
     onFork: () -> Unit,
@@ -447,13 +589,8 @@ private fun SessionCard(
                 .padding(16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            val isCompleted = session.time?.completed != null && session.time.completed > 0
-            Surface(
-                modifier = Modifier.size(12.dp),
-                shape = MaterialTheme.shapes.small,
-                color = if (isCompleted) MaterialTheme.colorScheme.tertiary
-                        else MaterialTheme.colorScheme.primary,
-            ) {}
+            // T11: Status indicator dot with pulse animation for busy state
+            StatusDot(status = status)
 
             Spacer(modifier = Modifier.width(16.dp))
 
@@ -467,8 +604,22 @@ private fun SessionCard(
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        text = TimeFormatter.formatRelativeTime(session.time?.updated),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    // T12: Summary statistics (+N/-M/Ff)
+                    SessionSummaryStats(summary = session.summary)
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
+                    val isCompleted = session.time?.completed != null && session.time.completed > 0
                     Text(
                         text = if (isCompleted) "COMPLETED" else "ACTIVE",
                         style = MaterialTheme.typography.labelSmall,
@@ -520,6 +671,84 @@ private fun SessionCard(
                     )
                 }
             }
+        }
+    }
+}
+
+// ─── T11: Status Dot ─────────────────────────────────────────────────────
+
+private val StatusGreen = Color(0xFF4CAF50)
+private val StatusYellow = Color(0xFFFFC107)
+private val StatusGray = Color(0xFF757575)
+
+@Composable
+private fun StatusDot(status: SessionStatus?) {
+    val isBusy = status == SessionStatus.BUSY
+
+    // Pulse animation for busy state
+    val infiniteTransition = rememberInfiniteTransition(label = "status_pulse")
+    val pulseAlpha by infiniteTransition.animateFloat(
+        initialValue = 1f,
+        targetValue = 0.4f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 800),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "status_alpha",
+    )
+
+    val dotColor = when (status) {
+        SessionStatus.BUSY -> StatusGreen
+        SessionStatus.IDLE -> StatusGray
+        null -> StatusGray
+    }
+
+    Box(
+        modifier = Modifier
+            .size(12.dp)
+            .background(
+                color = dotColor,
+                shape = CircleShape,
+            )
+            .then(
+                if (isBusy) Modifier.alpha(pulseAlpha) else Modifier,
+            ),
+    )
+}
+
+// ─── T12: Summary Statistics ─────────────────────────────────────────────
+
+@Composable
+private fun SessionSummaryStats(summary: SessionSummary?) {
+    if (summary == null) return
+    if (summary.additions == 0 && summary.deletions == 0 && summary.files == 0) return
+
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        if (summary.additions > 0) {
+            Text(
+                text = "+${summary.additions}",
+                style = MaterialTheme.typography.labelSmall,
+                color = StatusGreen,
+                fontWeight = FontWeight.Medium,
+            )
+        }
+        if (summary.deletions > 0) {
+            Text(
+                text = "-${summary.deletions}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.error,
+                fontWeight = FontWeight.Medium,
+            )
+        }
+        if (summary.files > 0) {
+            Text(
+                text = "${summary.files}f",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontWeight = FontWeight.Medium,
+            )
         }
     }
 }

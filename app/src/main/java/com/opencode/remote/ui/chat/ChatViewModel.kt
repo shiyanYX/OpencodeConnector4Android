@@ -789,6 +789,65 @@ class ChatViewModel @Inject constructor(
             // ── Internal sync (ignore) ──
             "sync" -> { /* silently ignore */ }
 
+            // ── Session created (log only — SessionsViewModel handles refresh) ──
+            "session.created" -> {
+                Log.d(TAG, "Session created: ${props.sessionID?.take(8)}")
+            }
+
+            // ── Session deleted (log only — SessionsViewModel handles refresh) ──
+            "session.deleted" -> {
+                Log.d(TAG, "Session deleted: ${props.sessionID?.take(8)}")
+            }
+
+            // ── Permission replied from TUI — clear pending permission ──
+            "permission.replied" -> {
+                Log.d(TAG, "Permission replied: id=${props.id?.take(8)} reply=${props.reply}")
+                if (_uiState.value.pendingPermission != null) {
+                    _uiState.update { it.copy(chatDisplay = it.chatDisplay.copy(
+                        pendingPermission = null, isBlocked = _uiState.value.pendingQuestion != null,
+                    ))}
+                    if (_uiState.value.pendingQuestion == null) {
+                        repository.clearBlockingState(_uiState.value.sessionId)
+                    }
+                }
+            }
+
+            // ── Question replied from TUI — clear pending question ──
+            "question.replied" -> {
+                Log.d(TAG, "Question replied: id=${props.id?.take(8)}")
+                if (_uiState.value.pendingQuestion != null) {
+                    _uiState.update { it.copy(chatDisplay = it.chatDisplay.copy(
+                        pendingQuestion = null, isBlocked = _uiState.value.pendingPermission != null,
+                    ))}
+                    if (_uiState.value.pendingPermission == null) {
+                        repository.clearBlockingState(_uiState.value.sessionId)
+                    }
+                }
+            }
+
+            // ── Question rejected from TUI — clear pending question ──
+            "question.rejected" -> {
+                Log.d(TAG, "Question rejected: id=${props.id?.take(8)}")
+                if (_uiState.value.pendingQuestion != null) {
+                    _uiState.update { it.copy(chatDisplay = it.chatDisplay.copy(
+                        pendingQuestion = null, isBlocked = _uiState.value.pendingPermission != null,
+                    ))}
+                    if (_uiState.value.pendingPermission == null) {
+                        repository.clearBlockingState(_uiState.value.sessionId)
+                    }
+                }
+            }
+
+            // ── Project updated (log only) ──
+            "project.updated" -> {
+                Log.d(TAG, "Project updated: name=${props.name} path=${props.path}")
+            }
+
+            // ── VCS branch updated (log only) ──
+            "vcs.branch.updated" -> {
+                Log.d(TAG, "VCS branch updated: ${props.previousBranch} -> ${props.branch}")
+            }
+
             // ── Errors ──
             "session.error" -> {
                 val errorMsg = props.error ?: com.opencode.remote.ui.strings.AppLocale.strings.errUnknown

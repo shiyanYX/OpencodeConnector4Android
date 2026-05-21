@@ -4,6 +4,7 @@ import app.cash.turbine.test
 import com.opencode.remote.data.datastore.ConnectionPreferences
 import com.opencode.remote.data.datastore.MemoManager
 import com.opencode.remote.data.repository.OConnectorRepository
+import com.opencode.remote.data.sessionstore.ActiveSessionStore
 import com.opencode.remote.data.sse.SseEventBus
 import io.mockk.clearAllMocks
 import io.mockk.coEvery
@@ -29,6 +30,7 @@ class SessionsViewModelAgentErrorTest {
     private lateinit var prefs: ConnectionPreferences
     private lateinit var sseEventBus: SseEventBus
     private lateinit var memoManager: MemoManager
+    private lateinit var activeSessionStore: ActiveSessionStore
 
     @Before
     fun setUp() {
@@ -36,6 +38,7 @@ class SessionsViewModelAgentErrorTest {
         prefs = mockk(relaxed = true)
         sseEventBus = SseEventBus()
         memoManager = mockk(relaxed = true)
+        activeSessionStore = ActiveSessionStore()
 
         // Default stubs for init-block coroutines
         every { prefs.darkMode } returns flowOf(false)
@@ -55,7 +58,7 @@ class SessionsViewModelAgentErrorTest {
         // Make listAgents throw
         coEvery { repository.listAgents() } throws RuntimeException("network error")
 
-        val viewModel = SessionsViewModel(repository, prefs, sseEventBus, memoManager)
+        val viewModel = SessionsViewModel(repository, prefs, sseEventBus, memoManager, activeSessionStore)
 
         viewModel.uiState.test {
             // Skip initial state
@@ -78,7 +81,7 @@ class SessionsViewModelAgentErrorTest {
     fun `availableAgentsError stays false when listAgents succeeds`() = runTest {
         coEvery { repository.listAgents() } returns emptyList()
 
-        val viewModel = SessionsViewModel(repository, prefs, sseEventBus, memoManager)
+        val viewModel = SessionsViewModel(repository, prefs, sseEventBus, memoManager, activeSessionStore)
 
         // The default state already has availableAgentsError = false
         // and a successful loadAgents() sets it to false again (no state change emitted).

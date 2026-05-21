@@ -3,6 +3,7 @@ package com.opencode.remote.ui.sessions
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.annotation.VisibleForTesting
 import com.opencode.remote.data.api.dto.SessionInfo
 import com.opencode.remote.data.api.dto.MemoEntry
 import com.opencode.remote.data.datastore.ConnectionPreferences
@@ -14,6 +15,8 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import com.opencode.remote.data.api.dto.ServerEvent
 import com.opencode.remote.data.sse.SseEventBus
+import com.opencode.remote.data.sessionstore.ActiveSessionStore
+import com.opencode.remote.data.sessionstore.SessionStatus
 import com.opencode.remote.ui.util.TimeGroup
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -48,6 +51,7 @@ class SessionsViewModel @Inject constructor(
     private val prefs: ConnectionPreferences,
     private val sseEventBus: SseEventBus,
     private val memoManager: MemoManager,
+    private val activeSessionStore: ActiveSessionStore,
 ) : ViewModel() {
 
     private var allSessions: List<SessionInfo> = emptyList()
@@ -58,11 +62,18 @@ class SessionsViewModel @Inject constructor(
     private val _creationEvents = MutableSharedFlow<String>()
     val creationEvents: SharedFlow<String> = _creationEvents.asSharedFlow()
 
+    /** Expose active session status map from ActiveSessionStore. */
+    val sessionStatusMap: StateFlow<Map<String, SessionStatus>> = activeSessionStore.statusMap
+
     private var sseJob: Job? = null
     private var pollingJob: Job? = null
+    private var searchJob: Job? = null
 
     companion object {
         private const val TAG = "SessionsViewModel"
+        /** Debounce delay for search. Override in tests to 0 for synchronous behavior. */
+        @VisibleForTesting
+        var searchDebounceMs: Long = 300L
     }
 
     init {
@@ -169,6 +180,32 @@ class SessionsViewModel @Inject constructor(
 
     fun setSearchQuery(query: String) {
         _uiState.update { it.copy(searchQuery = query, isSearching = query.isNotBlank()) }
+        searchJob?.cancel()
+        if (query.isBlank()) {
+            // Cleared — immediately restore full list
+            val visible = filterVisibleSessions(allSessions, _uiState.value.hideChildSessions)
+            _uiState.update {
+                it.copy(
+                    sessions = visible,
+                    isSearching = false,
+                    groupedSessions = groupSessionsByTime(visible),
+                )
+            }
+        } else {
+            searchJob = viewModelScope.launch {
+                delay(searchDebounceMs)
+                val filtered = filterVisibleSessions(allSessions, _uiState.value.hideChildSessions)
+                    .filter { session ->
+                        session.title?.contains(query, ignoreCase = true) == true
+                    }
+                _uiState.update {
+                    it.copy(
+                        sessions = filtered,
+                        groupedSessions = groupSessionsByTime(filtered),
+                    )
+                }
+            }
+        }
     }
 
     fun createSession(directory: String? = null) {
@@ -319,5 +356,6 @@ class SessionsViewModel @Inject constructor(
         super.onCleared()
         sseJob?.cancel()
         pollingJob?.cancel()
+        searchJob?.cancel()
     }
 }
