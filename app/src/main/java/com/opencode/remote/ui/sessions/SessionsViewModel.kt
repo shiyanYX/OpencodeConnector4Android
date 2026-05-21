@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import com.opencode.remote.data.api.dto.ServerEvent
 import com.opencode.remote.data.sse.SseEventBus
+import com.opencode.remote.ui.util.TimeGroup
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -32,6 +33,13 @@ data class SessionsUiState(
     // Memo panel
     val isMemoPanelOpen: Boolean = false,
     val memos: List<MemoEntry> = emptyList(),
+    // Search
+    val searchQuery: String = "",
+    val isSearching: Boolean = false,
+    // Agent loading error
+    val availableAgentsError: Boolean = false,
+    // Time-based grouping
+    val groupedSessions: Map<TimeGroup, List<SessionInfo>> = emptyMap(),
 )
 
 @HiltViewModel
@@ -78,10 +86,12 @@ class SessionsViewModel @Inject constructor(
     private fun observeHideChildSessions() {
         viewModelScope.launch {
             prefs.hideChildSessions.collect { enabled ->
+                val visible = filterVisibleSessions(allSessions, enabled)
                 _uiState.update {
                     it.copy(
                         hideChildSessions = enabled,
-                        sessions = filterVisibleSessions(allSessions, enabled),
+                        sessions = visible,
+                        groupedSessions = groupSessionsByTime(visible),
                     )
                 }
             }
@@ -111,10 +121,12 @@ class SessionsViewModel @Inject constructor(
             }
             try {
                 allSessions = repository.listAllSessions()
+                val visible = filterVisibleSessions(allSessions, _uiState.value.hideChildSessions)
                 _uiState.update {
                     it.copy(
-                        sessions = filterVisibleSessions(allSessions, it.hideChildSessions),
+                        sessions = visible,
                         isLoading = false,
+                        groupedSessions = groupSessionsByTime(visible),
                     )
                 }
             } catch (e: Exception) {
@@ -141,6 +153,22 @@ class SessionsViewModel @Inject constructor(
         if (name != null) {
             _uiState.update { it.copy(currentServerName = name) }
         }
+    }
+
+    fun loadAgents() {
+        viewModelScope.launch {
+            try {
+                repository.listAgents()
+                _uiState.update { it.copy(availableAgentsError = false) }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to load agents", e)
+                _uiState.update { it.copy(availableAgentsError = true) }
+            }
+        }
+    }
+
+    fun setSearchQuery(query: String) {
+        _uiState.update { it.copy(searchQuery = query, isSearching = query.isNotBlank()) }
     }
 
     fun createSession(directory: String? = null) {

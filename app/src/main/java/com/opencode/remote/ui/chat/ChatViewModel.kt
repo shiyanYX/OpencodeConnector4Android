@@ -81,6 +81,7 @@ data class ChatDisplayState(
     val availableAgents: List<AgentInfo> = emptyList(),
     val selectedAgent: String? = null,
     val showAgentPicker: Boolean = false,
+    val availableAgentsError: Boolean = false,
     // Panel state
     val isPanelOpen: Boolean = false,
     val panelFiles: List<FileNode> = emptyList(),
@@ -130,6 +131,7 @@ data class ChatUiState(
     val availableAgents get() = chatDisplay.availableAgents
     val selectedAgent get() = chatDisplay.selectedAgent
     val showAgentPicker get() = chatDisplay.showAgentPicker
+    val availableAgentsError get() = chatDisplay.availableAgentsError
     val isPanelOpen get() = chatDisplay.isPanelOpen
     val panelFiles get() = chatDisplay.panelFiles
     val currentFilePath get() = chatDisplay.currentFilePath
@@ -219,6 +221,7 @@ class ChatViewModel @Inject constructor(
                     expandedFileContent = null,
                     isLoadingFileContent = false,
                     error = null,
+                    availableAgentsError = false,
                 ),
             )
         }
@@ -413,12 +416,15 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    private fun loadAgents() {
+    fun loadAgents() {
         viewModelScope.launch {
             try {
                 val agents = repository.listAgents()
-                _uiState.update { it.copy(chatDisplay = it.chatDisplay.copy(availableAgents = agents)) }
-            } catch (e: Exception) { Log.w(TAG, "Failed to load agents", e) }
+                _uiState.update { it.copy(chatDisplay = it.chatDisplay.copy(availableAgents = agents, availableAgentsError = false)) }
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to load agents", e)
+                _uiState.update { it.copy(chatDisplay = it.chatDisplay.copy(availableAgentsError = true)) }
+            }
         }
     }
 

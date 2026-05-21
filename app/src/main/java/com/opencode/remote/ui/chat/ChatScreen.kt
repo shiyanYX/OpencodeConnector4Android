@@ -26,6 +26,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
@@ -243,6 +244,14 @@ fun ChatScreen(
                                     onTogglePicker = viewModel::toggleAgentPicker,
                                     onSelectAgent = viewModel::selectAgent,
                                 )
+                            } else if (uiState.availableAgentsError) {
+                                IconButton(onClick = { viewModel.loadAgents() }) {
+                                    Icon(
+                                        Icons.Default.Refresh,
+                                        contentDescription = "retry load agents",
+                                        tint = Color(0xFFE57373),
+                                    )
+                                }
                             }
                             if (uiState.todoItems.isNotEmpty()) {
                                 BadgedBox(
