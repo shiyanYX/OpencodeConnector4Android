@@ -52,6 +52,7 @@ class ConnectionPreferences @Inject constructor(
         val LANGUAGE = stringPreferencesKey("app_language")
         val DARK_MODE = booleanPreferencesKey("app_dark_mode")
         val HIDE_CHILD_SESSIONS = booleanPreferencesKey("hide_child_sessions")
+        val LIST_DENSITY = stringPreferencesKey("list_density")
     }
 
     private val masterKey by lazy {
@@ -173,6 +174,23 @@ class ConnectionPreferences @Inject constructor(
             context.dataStore.edit { it[Keys.HIDE_CHILD_SESSIONS] = enabled }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to save hide child sessions", e)
+        }
+    }
+
+    val listDensity: Flow<String> = context.dataStore.data
+        .map { prefs ->
+            prefs[Keys.LIST_DENSITY] ?: "default"
+        }
+        .catch { e ->
+            Log.e(TAG, "Failed to read list density", e)
+            emit("default")
+        }
+
+    suspend fun saveListDensity(density: String) {
+        try {
+            context.dataStore.edit { it[Keys.LIST_DENSITY] = density }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to save list density", e)
         }
     }
 

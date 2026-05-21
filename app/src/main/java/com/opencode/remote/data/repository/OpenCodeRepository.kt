@@ -73,6 +73,11 @@ interface OConnectorRepository {
 
     suspend fun getTodoList(sessionId: String, directory: String? = null): List<TodoItem>
 
+    // ─── Session Status ──────────────────────────────────────────────
+
+    suspend fun getSessionStatus(): Map<String, String>
+    suspend fun getSessionChildren(sessionId: String): List<SessionInfo>
+
     // ─── Project ─────────────────────────────────────────────────────
 
     suspend fun getCurrentProject(): ProjectInfo
@@ -394,6 +399,14 @@ class OConnectorRepositoryImpl @Inject constructor(
 
     override suspend fun getTodoList(sessionId: String, directory: String?): List<TodoItem> =
         requireClient().getTodoList(sessionId, directory)
+
+    // ─── Session Status ─────────────────────────────────────────────────
+
+    override suspend fun getSessionStatus(): Map<String, String> =
+        requireClient().getSessionStatus()
+
+    override suspend fun getSessionChildren(sessionId: String): List<SessionInfo> =
+        requireClient().getSessionChildren(sessionId)
 
     // ─── Project ─────────────────────────────────────────────────────
 

@@ -1,5 +1,7 @@
 package com.opencode.remote.data.sessionstore
 
+import android.util.Log
+import com.opencode.remote.data.repository.OConnectorRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -14,6 +16,10 @@ enum class SessionStatus {
 @Singleton
 class ActiveSessionStore @Inject constructor() {
 
+    companion object {
+        private const val TAG = "ActiveSessionStore"
+    }
+
     private val _statusMap = MutableStateFlow<Map<String, SessionStatus>>(emptyMap())
     val statusMap: StateFlow<Map<String, SessionStatus>> = _statusMap.asStateFlow()
 
@@ -27,6 +33,16 @@ class ActiveSessionStore @Inject constructor() {
                 "busy" -> SessionStatus.BUSY
                 else -> SessionStatus.IDLE
             }
+        }
+    }
+
+    suspend fun refreshAllStatuses(repository: OConnectorRepository) {
+        try {
+            val statusMap = repository.getSessionStatus()
+            updateFromStatusEndpoint(statusMap)
+            Log.d(TAG, "Refreshed status for ${statusMap.size} sessions")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to refresh session statuses", e)
         }
     }
 

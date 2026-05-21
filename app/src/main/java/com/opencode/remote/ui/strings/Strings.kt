@@ -246,6 +246,10 @@ data class AppStrings(
     // Status
     val statusBusy: String,
     val statusIdle: String,
+
+    // Density
+    val densityDefault: String,
+    val densityCompact: String,
 )
 
 // ─── English ───────────────────────────────────────────────────────
@@ -478,6 +482,10 @@ val enStrings = AppStrings(
     // Status
     statusBusy = "Busy",
     statusIdle = "Idle",
+
+    // Density
+    densityDefault = "Default density",
+    densityCompact = "Compact density",
 )
 
 // ─── Chinese ───────────────────────────────────────────────────────
@@ -710,4 +718,8 @@ val zhStrings = AppStrings(
     // Status
     statusBusy = "忙碌",
     statusIdle = "空闲",
+
+    // Density
+    densityDefault = "默认密度",
+    densityCompact = "紧凑密度",
 )

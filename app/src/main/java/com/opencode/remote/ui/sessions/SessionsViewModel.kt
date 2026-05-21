@@ -24,6 +24,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import javax.inject.Inject
 
+enum class ListDensity { DEFAULT, COMPACT }
+
 data class SessionsUiState(
     val sessions: List<SessionInfo> = emptyList(),
     val isLoading: Boolean = false,
@@ -43,6 +45,8 @@ data class SessionsUiState(
     val availableAgentsError: Boolean = false,
     // Time-based grouping
     val groupedSessions: Map<TimeGroup, List<SessionInfo>> = emptyMap(),
+    // Density
+    val listDensity: ListDensity = ListDensity.DEFAULT,
 )
 
 @HiltViewModel
@@ -82,6 +86,7 @@ class SessionsViewModel @Inject constructor(
         loadCurrentServerName()
         observeDarkMode()
         observeHideChildSessions()
+        observeListDensity()
         subscribeToSseEvents()
         startSessionsPolling()
     }
@@ -120,6 +125,22 @@ class SessionsViewModel @Inject constructor(
     fun toggleHideChildSessions() {
         viewModelScope.launch {
             prefs.saveHideChildSessions(!_uiState.value.hideChildSessions)
+        }
+    }
+
+    private fun observeListDensity() {
+        viewModelScope.launch {
+            prefs.listDensity.collect { value ->
+                val density = if (value == "compact") ListDensity.COMPACT else ListDensity.DEFAULT
+                _uiState.update { it.copy(listDensity = density) }
+            }
+        }
+    }
+
+    fun toggleDensity() {
+        viewModelScope.launch {
+            val newValue = if (_uiState.value.listDensity == ListDensity.DEFAULT) "compact" else "default"
+            prefs.saveListDensity(newValue)
         }
     }
 

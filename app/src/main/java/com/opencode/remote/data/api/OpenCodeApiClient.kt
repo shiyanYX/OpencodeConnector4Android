@@ -309,6 +309,22 @@ class OConnectorApiClient @Inject constructor(
             }
         }.body<List<TodoItem>>()
 
+    // ─── Session Status ────────────────────────────────────────────────
+
+    /** GET /session/status → returns Map<String, String> (sessionID → "busy"/"idle") */
+    suspend fun getSessionStatus(): Map<String, String> {
+        val statusMap = client.get("/session/status").body<Map<String, String>>()
+        Log.d(TAG, "Loaded status for ${statusMap.size} sessions")
+        return statusMap
+    }
+
+    /** GET /session/{id}/children → returns list of child sessions */
+    suspend fun getSessionChildren(sessionId: String): List<SessionInfo> {
+        val children = client.get("/session/$sessionId/children").body<List<SessionInfo>>()
+        Log.d(TAG, "Loaded ${children.size} children for session=$sessionId")
+        return children
+    }
+
     // ─── Project ───────────────────────────────────────────────────────
 
     /** GET /project/current → flat ProjectInfo (no wrapper) */

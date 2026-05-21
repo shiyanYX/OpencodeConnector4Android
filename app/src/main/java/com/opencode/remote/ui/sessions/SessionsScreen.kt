@@ -88,6 +88,12 @@ fun SessionsScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = { viewModel.toggleDensity() }) {
+                        Icon(
+                            imageVector = if (uiState.listDensity == ListDensity.COMPACT) Icons.Default.ViewAgenda else Icons.Default.ViewHeadline,
+                            contentDescription = if (uiState.listDensity == ListDensity.COMPACT) s.densityDefault else s.densityCompact,
+                        )
+                    }
                     IconButton(onClick = { viewModel.toggleHideChildSessions() }) {
                         Icon(
                             imageVector = if (uiState.hideChildSessions) Icons.Default.VisibilityOff else Icons.Default.Visibility,
@@ -143,6 +149,8 @@ fun SessionsScreen(
                 }
 
                 else -> {
+                    val statusMap by viewModel.sessionStatusMap.collectAsState()
+
                     val grouped = remember(uiState.sessions) {
                         uiState.sessions
                             .groupBy { it.directory ?: "unknown" }
@@ -153,6 +161,16 @@ fun SessionsScreen(
                             .sortedByDescending { (_, sessions) ->
                                 sessions.maxOfOrNull { it.time?.updated ?: it.time?.created ?: 0L } ?: 0L
                             }
+                    }
+
+                    // Precompute busy state per directory
+                    val busyDirectories = remember(statusMap, grouped) {
+                        grouped
+                            .filter { (_, sessions) ->
+                                sessions.any { statusMap[it.id] == SessionStatus.BUSY }
+                            }
+                            .map { (dir, _) -> dir }
+                            .toSet()
                     }
 
                     val timeGrouped = remember(grouped) {
@@ -192,6 +210,7 @@ fun SessionsScreen(
                                 ProjectCard(
                                     directory = directory,
                                     sessionCount = sessions.size,
+                                    hasBusySessions = directory in busyDirectories,
                                     onClick = { onProjectClick(directory) },
                                 )
                             }
@@ -212,6 +231,7 @@ fun SessionsScreen(
 private fun ProjectCard(
     directory: String,
     sessionCount: Int,
+    hasBusySessions: Boolean = false,
     onClick: () -> Unit,
 ) {
     val s = AppLocale.strings
@@ -239,13 +259,19 @@ private fun ProjectCard(
             Spacer(modifier = Modifier.width(16.dp))
 
             Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = folderName,
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Medium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = folderName,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    if (hasBusySessions) {
+                        Spacer(modifier = Modifier.width(8.dp))
+                        BusyProjectDot()
+                    }
+                }
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
                     text = directory,
@@ -373,6 +399,12 @@ fun ProjectSessionsScreen(
                             }
                         },
                         actions = {
+                            IconButton(onClick = { viewModel.toggleDensity() }) {
+                                Icon(
+                                    imageVector = if (uiState.listDensity == ListDensity.COMPACT) Icons.Default.ViewAgenda else Icons.Default.ViewHeadline,
+                                    contentDescription = if (uiState.listDensity == ListDensity.COMPACT) s.densityDefault else s.densityCompact,
+                                )
+                            }
                             IconButton(onClick = { viewModel.toggleHideChildSessions() }) {
                                 Icon(
                                     imageVector = if (uiState.hideChildSessions) Icons.Default.VisibilityOff else Icons.Default.Visibility,
@@ -496,6 +528,7 @@ fun ProjectSessionsScreen(
                                                 SessionCard(
                                                     session = session,
                                                     status = statusMap[session.id],
+                                                    density = uiState.listDensity,
                                                     onClick = { onSessionClick(session.id) },
                                                     onDelete = { viewModel.deleteSession(session.id, directory) },
                                                     onFork = { viewModel.forkSession(session.id, directory) },
@@ -525,6 +558,7 @@ fun ProjectSessionsScreen(
                                                     SessionCard(
                                                         session = session,
                                                         status = statusMap[session.id],
+                                                        density = uiState.listDensity,
                                                         onClick = { onSessionClick(session.id) },
                                                         onDelete = { viewModel.deleteSession(session.id, directory) },
                                                         onFork = { viewModel.forkSession(session.id, directory) },
@@ -570,10 +604,31 @@ fun ProjectSessionsScreen(
 private fun SessionCard(
     session: SessionInfo,
     status: SessionStatus?,
+    density: ListDensity,
     onClick: () -> Unit,
     onDelete: () -> Unit,
     onFork: () -> Unit,
 ) {
+    val isCompact = density == ListDensity.COMPACT
+    val cardPadding = if (isCompact) 8.dp else 16.dp
+    val spacerWidth = if (isCompact) 8.dp else 16.dp
+    val titleStyle = if (isCompact) {
+        MaterialTheme.typography.titleSmall.copy(fontSize = 12.sp)
+    } else {
+        MaterialTheme.typography.titleSmall
+    }
+    val bodyStyle = if (isCompact) {
+        MaterialTheme.typography.bodySmall.copy(fontSize = 10.sp)
+    } else {
+        MaterialTheme.typography.bodySmall
+    }
+    val labelStyle = if (isCompact) {
+        MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp)
+    } else {
+        MaterialTheme.typography.labelSmall
+    }
+    val spacerHeight = if (isCompact) 2.dp else 4.dp
+
     var showMenu by remember { mutableStateOf(false) }
     val s = AppLocale.strings
 
@@ -586,50 +641,50 @@ private fun SessionCard(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp),
+                .padding(cardPadding),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             // T11: Status indicator dot with pulse animation for busy state
             StatusDot(status = status)
 
-            Spacer(modifier = Modifier.width(16.dp))
+            Spacer(modifier = Modifier.width(spacerWidth))
 
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = session.title ?: session.slug ?: "Session ${session.id.take(8)}...",
-                    style = MaterialTheme.typography.titleSmall,
+                    style = titleStyle,
                     fontWeight = FontWeight.Medium,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Spacer(modifier = Modifier.height(4.dp))
+                Spacer(modifier = Modifier.height(spacerHeight))
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     Text(
                         text = TimeFormatter.formatRelativeTime(session.time?.updated),
-                        style = MaterialTheme.typography.bodySmall,
+                        style = bodyStyle,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     // T12: Summary statistics (+N/-M/Ff)
                     SessionSummaryStats(summary = session.summary)
                 }
-                Spacer(modifier = Modifier.height(4.dp))
+                Spacer(modifier = Modifier.height(spacerHeight))
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     val isCompleted = session.time?.completed != null && session.time.completed > 0
                     Text(
                         text = if (isCompleted) "COMPLETED" else "ACTIVE",
-                        style = MaterialTheme.typography.labelSmall,
+                        style = labelStyle,
                         color = if (isCompleted) MaterialTheme.colorScheme.onSurfaceVariant
                                 else MaterialTheme.colorScheme.primary,
                     )
                     session.version?.let { ver ->
                         Text(
                             text = "v$ver",
-                            style = MaterialTheme.typography.labelSmall,
+                            style = labelStyle,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
@@ -713,6 +768,31 @@ private fun StatusDot(status: SessionStatus?) {
             .then(
                 if (isBusy) Modifier.alpha(pulseAlpha) else Modifier,
             ),
+    )
+}
+
+/**
+ * Green pulsing dot for project cards — shown when any session in the project is busy.
+ * Reuses the same 800ms pulse animation as [StatusDot].
+ */
+@Composable
+private fun BusyProjectDot() {
+    val infiniteTransition = rememberInfiniteTransition(label = "busy_project_pulse")
+    val pulseAlpha by infiniteTransition.animateFloat(
+        initialValue = 1f,
+        targetValue = 0.4f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 800),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "busy_project_alpha",
+    )
+
+    Box(
+        modifier = Modifier
+            .size(12.dp)
+            .background(color = StatusGreen, shape = CircleShape)
+            .alpha(pulseAlpha),
     )
 }
 
