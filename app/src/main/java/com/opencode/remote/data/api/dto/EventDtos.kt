@@ -38,7 +38,7 @@ data class ServerEvent(
 
 @Serializable
 data class EventPayload(
-    val type: String,
+    val type: String = "",
     val properties: EventProperties = EventProperties(),
 )
 

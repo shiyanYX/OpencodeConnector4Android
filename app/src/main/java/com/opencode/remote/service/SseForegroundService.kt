@@ -39,7 +39,14 @@ class SseForegroundService : Service() {
             startForeground(NOTIFICATION_ID, notification)
         }
 
-        val generation = intent?.getLongExtra("generation", 0L) ?: 0L
+        // Guard against START_STICKY restart with null intent — don't reset generation
+        if (intent == null) {
+            Log.w(TAG, "onStartCommand with null intent (service restart), stopping to avoid stale state")
+            stopSelf()
+            return START_NOT_STICKY
+        }
+
+        val generation = intent.getLongExtra("generation", 0L)
 
         // Activate generation on event bus — filters stale events at source
         eventBus.activateGeneration(generation)
@@ -97,9 +104,13 @@ class SseForegroundService : Service() {
         private const val RESTART_DEBOUNCE_MS = 3000L
 
         fun start(context: Context, generation: Long = 0L) {
-            val intent = Intent(context, SseForegroundService::class.java)
-            intent.putExtra("generation", generation)
-            context.startForegroundService(intent)
+            try {
+                val intent = Intent(context, SseForegroundService::class.java)
+                intent.putExtra("generation", generation)
+                context.startForegroundService(intent)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to start SSE foreground service", e)
+            }
         }
 
         fun stop(context: Context) {
@@ -117,7 +128,11 @@ class SseForegroundService : Service() {
                 lastRestartTime = now
             }
             stop(context)
-            start(context, generation)
+            try {
+                start(context, generation)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to restart SSE foreground service", e)
+            }
         }
     }
 }

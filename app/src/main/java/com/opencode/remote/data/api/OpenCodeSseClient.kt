@@ -18,6 +18,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import java.io.IOException
+import java.util.concurrent.atomic.AtomicReference
 import javax.inject.Inject
 import javax.net.ssl.SSLContext
 import javax.net.ssl.X509TrustManager
@@ -44,6 +45,7 @@ class OConnectorSseClient @Inject constructor(
     private var authHeader: String? = null
     private var autoReconnect: Boolean = true
     private var insecureTrust: Boolean = false
+    @Volatile
     private var sseClient: HttpClient = createSseClient()
 
     private fun createSseClient(insecureTrust: Boolean = false): HttpClient = HttpClient(OkHttp) {
@@ -110,14 +112,14 @@ class OConnectorSseClient @Inject constructor(
         while (isActive) {
             // Heartbeat timeout tracking — 45s without any SSE line triggers reconnect
             var lastEventTimeMs = System.currentTimeMillis()
-            var sseChannel: ByteReadChannel? = null
+            val sseChannelRef = AtomicReference<ByteReadChannel?>(null)
             val heartbeatJob = launch {
                 while (isActive) {
                     delay(5000)
                     val elapsed = System.currentTimeMillis() - lastEventTimeMs
                     if (elapsed > 45_000) {
                         Log.w(TAG, "SSE heartbeat timeout: ${elapsed}ms since last event, reconnecting")
-                        sseChannel?.cancel()
+                        sseChannelRef.get()?.cancel()
                         return@launch
                     }
                 }
@@ -133,7 +135,7 @@ class OConnectorSseClient @Inject constructor(
                     }
                 }.execute { response ->
                     val channel: ByteReadChannel = response.bodyAsChannel()
-                    sseChannel = channel
+                    sseChannelRef.set(channel)
 
                     while (!channel.isClosedForRead) {
                         val line = try {
@@ -176,7 +178,7 @@ class OConnectorSseClient @Inject constructor(
                 if (!autoReconnect || !isActive) break
             } finally {
                 heartbeatJob.cancel()
-                sseChannel = null
+                sseChannelRef.set(null)
             }
 
             // Shared reconnect logic for both normal disconnect and error

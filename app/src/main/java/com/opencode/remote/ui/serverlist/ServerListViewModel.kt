@@ -68,7 +68,10 @@ class ServerListViewModel @Inject constructor(
                 return@launch
             }
 
-            val password = serverManager.getPassword(serverId) ?: ""
+            // Read password on IO thread — EncryptedSharedPreferences init involves Keystore I/O
+            val password = withContext(Dispatchers.IO) {
+                serverManager.getPassword(serverId) ?: ""
+            }
 
             val config = ConnectionConfig(
                 serverId = server.id,
@@ -91,6 +94,8 @@ class ServerListViewModel @Inject constructor(
                 }
 
                 if (success) {
+                    // Only start SSE service after connection is confirmed reachable
+                    repository.startSseService()
                     serverManager.saveLastActiveServerId(serverId)
                     _uiState.update {
                         it.copy(

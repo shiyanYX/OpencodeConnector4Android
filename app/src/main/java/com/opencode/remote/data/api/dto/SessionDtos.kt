@@ -10,7 +10,7 @@ import kotlinx.serialization.json.JsonElement
  */
 @Serializable
 data class SessionInfo(
-    val id: String,
+    val id: String = "",
     val slug: String? = null,
     @SerialName("projectID")
     val projectID: String? = null,
@@ -47,9 +47,9 @@ data class SessionSummary(
 
 @Serializable
 data class SessionPermission(
-    val permission: String,
-    val action: String,
-    val pattern: String,
+    val permission: String = "",
+    val action: String = "",
+    val pattern: String = "",
 )
 
 @Serializable
@@ -65,7 +65,7 @@ data class SessionTime(
  */
 @Serializable
 data class CreateSessionResponse(
-    val id: String,
+    val id: String = "",
     val slug: String? = null,
     val title: String? = null,
     @SerialName("projectID")
@@ -91,7 +91,7 @@ data class RevertRequest(
  */
 @Serializable
 data class MessageInfo(
-    val info: MessageInfoData,
+    val info: MessageInfoData = MessageInfoData(),
     val parts: List<MessagePart> = emptyList(),
 ) {
     /** 兼容属性：从 info 提取 */
@@ -101,8 +101,8 @@ data class MessageInfo(
 
 @Serializable
 data class MessageInfoData(
-    val id: String,
-    val role: String,
+    val id: String = "",
+    val role: String = "",
     @SerialName("sessionID")
     val sessionID: String? = null,
     @SerialName("parentID")
@@ -167,7 +167,7 @@ data class CacheTokens(
  */
 @Serializable
 data class MessagePart(
-    val type: String,
+    val type: String = "text",
     val text: String? = null,
     val id: String? = null,
     @SerialName("sessionID")
@@ -251,8 +251,8 @@ data class SendMessageResponse(
  */
 @Serializable
 data class TodoItem(
-    val content: String,
-    val status: String,
+    val content: String = "",
+    val status: String = "",
     val priority: String? = null,
 )
 

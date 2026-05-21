@@ -39,6 +39,8 @@ interface OConnectorRepository {
     val currentGeneration: Long
 
     fun connect(config: ConnectionConfig)
+    /** Start SSE foreground service and network monitor. Call AFTER testConnection() succeeds. */
+    fun startSseService()
     fun disconnect()
     fun switchToServer(serverId: String, config: ConnectionConfig)
     fun getActiveServerId(): String?
@@ -155,6 +157,7 @@ class OConnectorRepositoryImpl @Inject constructor(
     private val connectionGeneration = java.util.concurrent.atomic.AtomicLong(0)
     override val currentGeneration: Long get() = connectionGeneration.get()
 
+    @Volatile
     private var connected = false
     private var cachedAgents: List<AgentInfo>? = null
     private var agentsCacheTime: Long = 0
@@ -265,14 +268,16 @@ class OConnectorRepositoryImpl @Inject constructor(
         if (activeServerId == serverId && connected) return  // already connected to this server
         if (connected) disconnect()
         connect(config)
+        startSseService()
         activeServerId = serverId
     }
 
     override fun getActiveServerId(): String? = activeServerId
 
     /**
-     * Initialize connection to the OpenCode server.
-     * Clients are provided by Hilt; this configures them with connection parameters.
+     * Configure API and SSE clients with connection parameters.
+     * Does NOT start the foreground service — call [startSseService] after
+     * [testConnection] confirms the server is reachable.
      */
     override fun connect(config: ConnectionConfig) {
         if (connected) disconnect()
@@ -282,14 +287,31 @@ class OConnectorRepositoryImpl @Inject constructor(
         apiClient.configure(baseUrl, config.username, config.password, config.insecureTrust)
         sseClient.configure(baseUrl, config.username, config.password, config.autoReconnect, config.insecureTrust)
         connected = true
-        val gen = connectionGeneration.incrementAndGet()
-        SseForegroundService.start(context, gen)
+        connectionGeneration.incrementAndGet()
+    }
+
+    /**
+     * Start the SSE foreground service and network recovery monitor.
+     * Must be called AFTER [testConnection] succeeds.
+     */
+    override fun startSseService() {
+        if (!connected) return
+        val gen = connectionGeneration.get()
+        try {
+            SseForegroundService.start(context, gen)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to start SSE foreground service", e)
+        }
 
         networkMonitor.onNetworkAvailable = {
             if (connected) {
                 Log.d(TAG, "Network recovered, restarting SSE")
                 val restartGen = connectionGeneration.incrementAndGet()
-                SseForegroundService.restart(context, restartGen)
+                try {
+                    SseForegroundService.restart(context, restartGen)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to restart SSE foreground service", e)
+                }
             }
         }
         networkMonitor.start()

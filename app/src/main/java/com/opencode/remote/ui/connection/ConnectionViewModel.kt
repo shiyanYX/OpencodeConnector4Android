@@ -137,6 +137,8 @@ class ConnectionViewModel @Inject constructor(
                 }
 
                 if (success) {
+                    // Only start SSE service after connection is confirmed reachable
+                    repository.startSseService()
                     // Pre-load agent list for later use
                     try {
                         withContext(Dispatchers.IO) { repository.listAgents() }
@@ -219,6 +221,8 @@ class ConnectionViewModel @Inject constructor(
                 val success = withContext(Dispatchers.IO) { repository.testConnection() }
 
                 if (success) {
+                    // Only start SSE service after connection is confirmed reachable
+                    repository.startSseService()
                     serverManager.saveLastActiveServerId(serverId)
                     _uiState.update { it.copy(isConnecting = false, isConnected = true) }
                 } else {

@@ -38,6 +38,7 @@ abstract class AppModule {
             isLenient = true
             encodeDefaults = true
             explicitNulls = false
+            coerceInputValues = true
         }
 
         @Provides

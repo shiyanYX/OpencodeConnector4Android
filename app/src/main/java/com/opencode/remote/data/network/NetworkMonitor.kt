@@ -56,7 +56,12 @@ class NetworkMonitor @Inject constructor(
         val request = NetworkRequest.Builder()
             .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
             .build()
-        connectivityManager.registerNetworkCallback(request, networkCallback)
+        try {
+            connectivityManager.registerNetworkCallback(request, networkCallback)
+        } catch (e: SecurityException) {
+            Log.e(TAG, "Missing ACCESS_NETWORK_STATE permission", e)
+            return
+        }
         isStarted = true
         Log.d(TAG, "NetworkMonitor started")
     }

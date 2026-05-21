@@ -9,7 +9,7 @@ import kotlinx.serialization.Serializable
  */
 @Serializable
 data class ProjectInfo(
-    val id: String,
+    val id: String = "",
     val worktree: String? = null,
     val time: ProjectTime? = null,
     val sandboxes: List<ProjectSandbox> = emptyList(),
@@ -35,7 +35,7 @@ data class ProjectSandbox(
  */
 @Serializable
 data class AgentInfo(
-    val name: String,
+    val name: String = "",
     val mode: String? = null,
     val description: String? = null,
     val hidden: Boolean? = false,
@@ -56,10 +56,10 @@ data class AgentModel(
  */
 @Serializable
 data class FileNode(
-    val name: String,
-    val path: String,
-    val absolute: String,
-    val type: String,
+    val name: String = "",
+    val path: String = "",
+    val absolute: String = "",
+    val type: String = "file",
     val ignored: Boolean = false,
 )
 
@@ -84,7 +84,7 @@ data class ProviderList(
 
 @Serializable
 data class ProviderInfo(
-    val id: String,
+    val id: String = "",
     val name: String? = null,
     /** Server returns models as a JSON object (Map keyed by model ID), not an array. */
     val models: Map<String, ModelInfo> = emptyMap(),
