@@ -47,9 +47,9 @@ data class SessionSummary(
 
 @Serializable
 data class SessionPermission(
-    val permission: String = "",
+    val permission: String? = null,
     val action: String = "",
-    val pattern: String = "",
+    val pattern: String? = null,
 )
 
 @Serializable
@@ -58,6 +58,8 @@ data class SessionTime(
     val updated: Long? = null,
     val initialized: Long? = null,
     val completed: Long? = null,
+    @SerialName("time.archived")
+    val archived: Long? = null,
 )
 
 /**
@@ -163,7 +165,8 @@ data class CacheTokens(
 
 /**
  * 消息的 part —— 一个消息包含多个 part
- * type 可以是: "text", "step-start", "step-finish", "reasoning", "tool-call" 等
+ * type 可以是: "text", "step-start", "step-finish", "reasoning", "tool-call",
+ * "file", "agent", "snapshot", "patch", "retry", "compaction", "subtask" 等
  */
 @Serializable
 data class MessagePart(
@@ -185,6 +188,10 @@ data class MessagePart(
     val callID: String? = null,
     /** Tool execution state: status, input, output. */
     val state: ToolState? = null,
+    /** File name for type="file" parts. */
+    val name: String? = null,
+    /** File path for type="file" parts. */
+    val path: String? = null,
 )
 
 @Serializable

@@ -31,6 +31,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.DataUsage
@@ -75,20 +76,26 @@ import kotlinx.coroutines.delay
 /** Parse completed message parts into display segments. */
 internal fun parseMessageSegments(message: MessageInfo): List<ResponseSegment> {
     return message.parts
-        .filter { it.type in listOf("reasoning", "text", "tool-invocation", "tool-call", "tool") }
+        .filter { it.type in listOf(
+            "reasoning", "text", "tool-invocation", "tool-call", "tool",
+            "file", "agent", "snapshot", "patch", "retry", "compaction", "subtask",
+        ) }
         .filter { part ->
             // Keep tool parts even if text is empty — they have structured data
             if (part.type == "tool") true
+            else if (part.type == "file") true  // file parts have name/path, not text
             else !part.text.isNullOrBlank()
         }
         .map { part ->
             val segType = when (part.type) {
                 "reasoning" -> "thinking"
                 "text" -> "text"
+                "file" -> "file"
                 else -> "tool"
             }
             val displayText = when (segType) {
                 "tool" -> ToolSummarizer.summarize(part)
+                "file" -> part.name ?: "File"
                 else -> part.text ?: ""
             }
             ResponseSegment(type = segType, text = displayText, isStreaming = false)
@@ -177,6 +184,34 @@ internal fun AiResponsePanel(
                             containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f),
                             contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
                         )
+                        Spacer(Modifier.height(4.dp))
+                    }
+                    "file" -> {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.AttachFile,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    text = seg.text,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
                         Spacer(Modifier.height(4.dp))
                     }
                     else -> {

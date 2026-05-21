@@ -231,6 +231,12 @@ data class AppStrings(
     val deleteMemoConfirm: String,
     val noMemos: String,
     val noMemosHint: String,
+
+    // Time groups
+    val timeToday: String,
+    val timeYesterday: String,
+    val timeThisWeek: String,
+    val timeOlder: String,
 )
 
 // ─── English ───────────────────────────────────────────────────────
@@ -448,6 +454,12 @@ val enStrings = AppStrings(
     deleteMemoConfirm = "Delete this memo?",
     noMemos = "No memos yet",
     noMemosHint = "Tap + to create one",
+
+    // Time groups
+    timeToday = "Today",
+    timeYesterday = "Yesterday",
+    timeThisWeek = "This Week",
+    timeOlder = "Older",
 )
 
 // ─── Chinese ───────────────────────────────────────────────────────
@@ -665,4 +677,10 @@ val zhStrings = AppStrings(
     deleteMemoConfirm = "确定删除此备忘录？",
     noMemos = "暂无备忘录",
     noMemosHint = "点击 + 创建",
+
+    // Time groups
+    timeToday = "今天",
+    timeYesterday = "昨天",
+    timeThisWeek = "本周",
+    timeOlder = "更早",
 )
