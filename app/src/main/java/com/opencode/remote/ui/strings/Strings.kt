@@ -50,6 +50,8 @@ data class AppStrings(
     val close: String,
     val hideChildSessions: String,
     val showChildSessions: String,
+    val expandChildren: String,
+    val collapseChildren: String,
 
     // Chat screen
     val sendFirstMsg: String,
@@ -292,6 +294,8 @@ val enStrings = AppStrings(
     close = "Close",
     hideChildSessions = "Hide child sessions",
     showChildSessions = "Show child sessions",
+    expandChildren = "Expand child sessions",
+    collapseChildren = "Collapse child sessions",
 
     // Chat
     sendFirstMsg = "Send a message to start",
@@ -528,6 +532,8 @@ val zhStrings = AppStrings(
     close = "关闭",
     hideChildSessions = "隐藏子会话",
     showChildSessions = "显示子会话",
+    expandChildren = "展开子会话",
+    collapseChildren = "折叠子会话",
 
     // Chat
     sendFirstMsg = "发送第一条消息开始对话",

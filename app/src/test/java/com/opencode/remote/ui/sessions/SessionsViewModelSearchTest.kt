@@ -6,6 +6,7 @@ import com.opencode.remote.data.datastore.ConnectionPreferences
 import com.opencode.remote.data.datastore.MemoManager
 import com.opencode.remote.data.repository.OConnectorRepository
 import com.opencode.remote.data.sessionstore.ActiveSessionStore
+import com.opencode.remote.data.sessionstore.ChildSessionStore
 import com.opencode.remote.data.sse.SseEventBus
 import io.mockk.clearAllMocks
 import io.mockk.coEvery
@@ -34,6 +35,7 @@ class SessionsViewModelSearchTest {
     private lateinit var sseEventBus: SseEventBus
     private lateinit var memoManager: MemoManager
     private lateinit var activeSessionStore: ActiveSessionStore
+    private lateinit var childSessionStore: ChildSessionStore
 
     private val testSessions = listOf(
         SessionInfo(id = "1", title = "Fix login bug", time = SessionTime(updated = 1L)),
@@ -50,6 +52,7 @@ class SessionsViewModelSearchTest {
         sseEventBus = SseEventBus()
         memoManager = mockk(relaxed = true)
         activeSessionStore = ActiveSessionStore()
+        childSessionStore = ChildSessionStore()
 
         every { prefs.darkMode } returns flowOf(false)
         every { prefs.hideChildSessions } returns flowOf(false)
@@ -70,7 +73,7 @@ class SessionsViewModelSearchTest {
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
     fun `debounce - rapid queries only last filter applied`() = runTest {
-        val viewModel = SessionsViewModel(repository, prefs, sseEventBus, memoManager, activeSessionStore)
+        val viewModel = SessionsViewModel(repository, prefs, sseEventBus, memoManager, activeSessionStore, childSessionStore)
         advanceUntilIdle()
 
         // Fire 5 rapid queries — each cancels previous, only last filter applies
@@ -91,7 +94,7 @@ class SessionsViewModelSearchTest {
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
     fun `debounce - intermediate queries cancelled before filter`() = runTest {
-        val viewModel = SessionsViewModel(repository, prefs, sseEventBus, memoManager, activeSessionStore)
+        val viewModel = SessionsViewModel(repository, prefs, sseEventBus, memoManager, activeSessionStore, childSessionStore)
         advanceUntilIdle()
 
         viewModel.setSearchQuery("login")
@@ -111,7 +114,7 @@ class SessionsViewModelSearchTest {
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
     fun `clear query restores all sessions`() = runTest {
-        val viewModel = SessionsViewModel(repository, prefs, sseEventBus, memoManager, activeSessionStore)
+        val viewModel = SessionsViewModel(repository, prefs, sseEventBus, memoManager, activeSessionStore, childSessionStore)
         advanceUntilIdle()
 
         viewModel.setSearchQuery("login")
@@ -128,7 +131,7 @@ class SessionsViewModelSearchTest {
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
     fun `case-insensitive search`() = runTest {
-        val viewModel = SessionsViewModel(repository, prefs, sseEventBus, memoManager, activeSessionStore)
+        val viewModel = SessionsViewModel(repository, prefs, sseEventBus, memoManager, activeSessionStore, childSessionStore)
         advanceUntilIdle()
 
         viewModel.setSearchQuery("LOGIN")
@@ -142,7 +145,7 @@ class SessionsViewModelSearchTest {
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
     fun `search with no matches returns empty list`() = runTest {
-        val viewModel = SessionsViewModel(repository, prefs, sseEventBus, memoManager, activeSessionStore)
+        val viewModel = SessionsViewModel(repository, prefs, sseEventBus, memoManager, activeSessionStore, childSessionStore)
         advanceUntilIdle()
 
         viewModel.setSearchQuery("zzz_nonexistent")
@@ -156,7 +159,7 @@ class SessionsViewModelSearchTest {
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
     fun `query with only whitespace treated as cleared`() = runTest {
-        val viewModel = SessionsViewModel(repository, prefs, sseEventBus, memoManager, activeSessionStore)
+        val viewModel = SessionsViewModel(repository, prefs, sseEventBus, memoManager, activeSessionStore, childSessionStore)
         advanceUntilIdle()
 
         viewModel.setSearchQuery("login")
@@ -172,7 +175,7 @@ class SessionsViewModelSearchTest {
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
     fun `isSearching set immediately on non-blank query`() = runTest {
-        val viewModel = SessionsViewModel(repository, prefs, sseEventBus, memoManager, activeSessionStore)
+        val viewModel = SessionsViewModel(repository, prefs, sseEventBus, memoManager, activeSessionStore, childSessionStore)
         advanceUntilIdle()
 
         // Before search

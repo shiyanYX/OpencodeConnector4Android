@@ -7,6 +7,7 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
@@ -467,6 +468,10 @@ fun ProjectSessionsScreen(
                         else -> {
                             val isSearching = uiState.searchQuery.isNotBlank()
                             val statusMap by viewModel.sessionStatusMap.collectAsState()
+                            val childrenMap by viewModel.childrenMap.collectAsState()
+                            val allProjectSessionsMap = remember(projectSessions) {
+                                projectSessions.associateBy { it.id }
+                            }
                             val filteredSessions = if (isSearching) {
                                 projectSessions.filter {
                                     it.title?.contains(uiState.searchQuery, ignoreCase = true) == true
@@ -555,6 +560,9 @@ fun ProjectSessionsScreen(
                                                     items = sessions,
                                                     key = { it.id }
                                                 ) { session ->
+                                                    val hasChildren = childrenMap[session.id]?.isNotEmpty() == true
+                                                    val isExpanded = session.id in uiState.expandedParents
+
                                                     SessionCard(
                                                         session = session,
                                                         status = statusMap[session.id],
@@ -562,7 +570,35 @@ fun ProjectSessionsScreen(
                                                         onClick = { onSessionClick(session.id) },
                                                         onDelete = { viewModel.deleteSession(session.id, directory) },
                                                         onFork = { viewModel.forkSession(session.id, directory) },
+                                                        hasChildren = hasChildren,
+                                                        isExpanded = isExpanded,
+                                                        onToggleExpand = {
+                                                            viewModel.toggleExpand(session.id)
+                                                            // Refresh children on first expand
+                                                            if (!isExpanded) {
+                                                                viewModel.refreshChildSessions(session.id)
+                                                            }
+                                                        },
                                                     )
+
+                                                    // Show child sessions when expanded and not hiding children
+                                                    if (hasChildren && isExpanded && !uiState.hideChildSessions) {
+                                                        val childIds = childrenMap[session.id] ?: emptySet()
+                                                        childIds.forEach { childId ->
+                                                            val childSession = allProjectSessionsMap[childId]
+                                                            if (childSession != null) {
+                                                                SessionCard(
+                                                                    session = childSession,
+                                                                    status = statusMap[childId],
+                                                                    density = uiState.listDensity,
+                                                                    onClick = { onSessionClick(childId) },
+                                                                    onDelete = { viewModel.deleteSession(childId, directory) },
+                                                                    onFork = { viewModel.forkSession(childId, directory) },
+                                                                    isChild = true,
+                                                                )
+                                                            }
+                                                        }
+                                                    }
                                                 }
                                             }
                                         }
@@ -608,6 +644,10 @@ private fun SessionCard(
     onClick: () -> Unit,
     onDelete: () -> Unit,
     onFork: () -> Unit,
+    isChild: Boolean = false,
+    hasChildren: Boolean = false,
+    isExpanded: Boolean = false,
+    onToggleExpand: (() -> Unit)? = null,
 ) {
     val isCompact = density == ListDensity.COMPACT
     val cardPadding = if (isCompact) 8.dp else 16.dp
@@ -635,8 +675,10 @@ private fun SessionCard(
     Card(
         modifier = Modifier
             .fillMaxWidth()
+            .then(if (isChild) Modifier.padding(start = 24.dp) else Modifier)
             .clickable(onClick = onClick),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = if (isChild) 0.5.dp else 1.dp),
+        border = if (isChild) BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)) else null,
     ) {
         Row(
             modifier = Modifier
@@ -688,6 +730,21 @@ private fun SessionCard(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
+                }
+            }
+
+            // Expand/collapse chevron for parent sessions with children
+            if (hasChildren && onToggleExpand != null) {
+                IconButton(
+                    onClick = onToggleExpand,
+                    modifier = Modifier.size(32.dp),
+                ) {
+                    Icon(
+                        imageVector = if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                        contentDescription = if (isExpanded) s.collapseChildren else s.expandChildren,
+                        modifier = Modifier.size(18.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
 

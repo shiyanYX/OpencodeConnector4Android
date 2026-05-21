@@ -16,6 +16,7 @@ import kotlinx.coroutines.launch
 import com.opencode.remote.data.api.dto.ServerEvent
 import com.opencode.remote.data.sse.SseEventBus
 import com.opencode.remote.data.sessionstore.ActiveSessionStore
+import com.opencode.remote.data.sessionstore.ChildSessionStore
 import com.opencode.remote.data.sessionstore.SessionStatus
 import com.opencode.remote.ui.util.TimeGroup
 import kotlinx.coroutines.CancellationException
@@ -47,6 +48,8 @@ data class SessionsUiState(
     val groupedSessions: Map<TimeGroup, List<SessionInfo>> = emptyMap(),
     // Density
     val listDensity: ListDensity = ListDensity.DEFAULT,
+    // Child session tree expansion
+    val expandedParents: Set<String> = emptySet(),
 )
 
 @HiltViewModel
@@ -56,6 +59,7 @@ class SessionsViewModel @Inject constructor(
     private val sseEventBus: SseEventBus,
     private val memoManager: MemoManager,
     private val activeSessionStore: ActiveSessionStore,
+    private val childSessionStore: ChildSessionStore,
 ) : ViewModel() {
 
     private var allSessions: List<SessionInfo> = emptyList()
@@ -68,6 +72,9 @@ class SessionsViewModel @Inject constructor(
 
     /** Expose active session status map from ActiveSessionStore. */
     val sessionStatusMap: StateFlow<Map<String, SessionStatus>> = activeSessionStore.statusMap
+
+    /** Expose child session map from ChildSessionStore. */
+    val childrenMap: StateFlow<Map<String, Set<String>>> = childSessionStore.childrenMap
 
     private var sseJob: Job? = null
     private var pollingJob: Job? = null
@@ -141,6 +148,27 @@ class SessionsViewModel @Inject constructor(
         viewModelScope.launch {
             val newValue = if (_uiState.value.listDensity == ListDensity.DEFAULT) "compact" else "default"
             prefs.saveListDensity(newValue)
+        }
+    }
+
+    /** Toggle expand/collapse for a parent session's child tree. */
+    fun toggleExpand(sessionId: String) {
+        _uiState.update { state ->
+            val expanded = state.expandedParents
+            state.copy(
+                expandedParents = if (sessionId in expanded) expanded - sessionId else expanded + sessionId
+            )
+        }
+    }
+
+    /** Get children for a parent session synchronously. */
+    fun getChildSessionIds(parentId: String): Set<String> =
+        childSessionStore.getChildren(parentId)
+
+    /** Refresh child sessions for a parent from the server. */
+    fun refreshChildSessions(parentId: String) {
+        viewModelScope.launch {
+            childSessionStore.refreshChildren(parentId, repository)
         }
     }
 
