@@ -375,8 +375,14 @@ class SessionsViewModel @Inject constructor(
             try {
                 sseEventBus.events.collect { envelope ->
                     val type = envelope.event.payload.type
-                    if (type == "session.updated" || type == "session.created") {
+                    if (type == "session.updated" || type == "session.created" || type == "session.deleted") {
                         Log.d(TAG, "SSE session event: $type, refreshing sessions")
+                        if (type == "session.deleted") {
+                            val deletedId = envelope.event.payload.properties.sessionID
+                            if (deletedId != null && deletedId in _uiState.value.expandedParents) {
+                                _uiState.update { it.copy(expandedParents = it.expandedParents - deletedId) }
+                            }
+                        }
                         loadSessions()
                     }
                 }

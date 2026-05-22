@@ -1,8 +1,13 @@
 package com.opencode.remote.data.sessionstore
 
 import app.cash.turbine.test
+import com.opencode.remote.data.api.dto.SessionInfo
+import com.opencode.remote.data.repository.OConnectorRepository
+import io.mockk.coEvery
+import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -123,5 +128,67 @@ class ChildSessionStoreTest {
         store.removeChild("parent_1", "child_old")
         store.registerChild("parent_1", "child_new")
         assertEquals(setOf("child_new"), store.getChildren("parent_1"))
+    }
+
+    // ─── hasLoadedChildren / loaded-parents cache ──────────────────────
+
+    @Test
+    fun `hasLoadedChildren returns false before refresh, true after refresh`() = runTest {
+        val repository: OConnectorRepository = mockk()
+        coEvery { repository.getSessionChildren("parent_1") } returns listOf(
+            SessionInfo(id = "child_1"),
+        )
+
+        assertFalse(store.hasLoadedChildren("parent_1"))
+
+        store.refreshChildren("parent_1", repository)
+
+        assertTrue(store.hasLoadedChildren("parent_1"))
+    }
+
+    @Test
+    fun `empty child response still marks parent loaded`() = runTest {
+        val repository: OConnectorRepository = mockk()
+        coEvery { repository.getSessionChildren("parent_1") } returns emptyList()
+
+        assertFalse(store.hasLoadedChildren("parent_1"))
+
+        store.refreshChildren("parent_1", repository)
+
+        assertTrue(store.hasLoadedChildren("parent_1"))
+        assertTrue(store.getChildren("parent_1").isEmpty())
+    }
+
+    @Test
+    fun `clear resets both childrenMap and loaded set`() = runTest {
+        val repository: OConnectorRepository = mockk()
+        coEvery { repository.getSessionChildren("parent_1") } returns listOf(
+            SessionInfo(id = "child_1"),
+        )
+
+        store.refreshChildren("parent_1", repository)
+        assertTrue(store.hasLoadedChildren("parent_1"))
+
+        store.clear()
+
+        assertTrue(store.getChildren("parent_1").isEmpty())
+        assertFalse(store.hasLoadedChildren("parent_1"))
+    }
+
+    @Test
+    fun `invalidate removes from loaded set`() = runTest {
+        val repository: OConnectorRepository = mockk()
+        coEvery { repository.getSessionChildren("parent_1") } returns listOf(
+            SessionInfo(id = "child_1"),
+        )
+
+        store.refreshChildren("parent_1", repository)
+        assertTrue(store.hasLoadedChildren("parent_1"))
+
+        store.invalidate("parent_1")
+
+        assertFalse(store.hasLoadedChildren("parent_1"))
+        // Children data is NOT cleared by invalidate
+        assertEquals(setOf("child_1"), store.getChildren("parent_1"))
     }
 }

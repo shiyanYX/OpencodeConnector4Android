@@ -23,6 +23,9 @@ class ChildSessionStore @Inject constructor() {
     private val _childrenMap = MutableStateFlow<Map<String, Set<String>>>(emptyMap())
     val childrenMap: StateFlow<Map<String, Set<String>>> = _childrenMap.asStateFlow()
 
+    /** Tracks which parents have been loaded via refreshChildren(). */
+    private val _loadedParents = mutableSetOf<String>()
+
     /** Register a child session under a parent (from SSE `session.created`). */
     fun registerChild(parentId: String, childId: String) {
         _childrenMap.value = _childrenMap.value.toMutableMap().apply {
@@ -48,6 +51,15 @@ class ChildSessionStore @Inject constructor() {
     fun getChildren(parentId: String): Set<String> =
         _childrenMap.value[parentId] ?: emptySet()
 
+    /** Check whether children for a parent have been loaded via refreshChildren(). */
+    fun hasLoadedChildren(parentId: String): Boolean =
+        parentId in _loadedParents
+
+    /** Remove a parent from the loaded set, forcing a reload on next access. */
+    fun invalidate(parentId: String) {
+        _loadedParents.remove(parentId)
+    }
+
     /** Refresh children for a parent by calling the REST API. Replaces the stored set. */
     suspend fun refreshChildren(parentId: String, repository: OConnectorRepository) {
         try {
@@ -60,6 +72,7 @@ class ChildSessionStore @Inject constructor() {
                     put(parentId, childIds)
                 }
             }
+            _loadedParents.add(parentId)
             Log.d(TAG, "Refreshed children for $parentId: ${childIds.size} children")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to refresh children for $parentId", e)
@@ -69,5 +82,6 @@ class ChildSessionStore @Inject constructor() {
     /** Clear all parent-child mappings (e.g. on disconnect). */
     fun clear() {
         _childrenMap.value = emptyMap()
+        _loadedParents.clear()
     }
 }
