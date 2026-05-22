@@ -348,10 +348,6 @@ fun ProjectSessionsScreen(
             .sortedByDescending { it.time?.updated ?: it.time?.created ?: 0L }
     }
 
-    val timeGroupedSessions = remember(projectSessions) {
-        groupSessionsByTime(projectSessions).toList()
-    }
-
     // Outer Box with swipe gesture detection for memo panel
     Box(
         modifier = Modifier
@@ -469,8 +465,14 @@ fun ProjectSessionsScreen(
                             val isSearching = uiState.searchQuery.isNotBlank()
                             val statusMap by viewModel.sessionStatusMap.collectAsState()
                             val childrenMap by viewModel.childrenMap.collectAsState()
-                            val allProjectSessionsMap = remember(projectSessions) {
-                                projectSessions.associateBy { it.id }
+                            val allProjectSessionsMap = remember(uiState.sessions) {
+                                viewModel.allSessionsForProject(directory).associateBy { it.id }
+                            }
+                            val flatRenderSessions = remember(projectSessions, childrenMap, uiState.expandedParents) {
+                                excludeChildrenOfExpandedParents(projectSessions, childrenMap, uiState.expandedParents)
+                            }
+                            val timeGroupedSessions = remember(flatRenderSessions) {
+                                groupSessionsByTime(flatRenderSessions).toList()
                             }
                             val filteredSessions = if (isSearching) {
                                 projectSessions.filter {
@@ -574,15 +576,15 @@ fun ProjectSessionsScreen(
                                                         isExpanded = isExpanded,
                                                         onToggleExpand = {
                                                             viewModel.toggleExpand(session.id)
-                                                            // Refresh children on first expand
-                                                            if (!isExpanded) {
+                                                            // Refresh children only on first expand
+                                                            if (!isExpanded && viewModel.shouldRefreshChildren(session.id)) {
                                                                 viewModel.refreshChildSessions(session.id)
                                                             }
                                                         },
                                                     )
 
-                                                    // Show child sessions when expanded and not hiding children
-                                                    if (hasChildren && isExpanded && !uiState.hideChildSessions) {
+                                                    // Show child sessions when expanded
+                                                    if (hasChildren && isExpanded) {
                                                         val childIds = childrenMap[session.id] ?: emptySet()
                                                         childIds.forEach { childId ->
                                                             val childSession = allProjectSessionsMap[childId]

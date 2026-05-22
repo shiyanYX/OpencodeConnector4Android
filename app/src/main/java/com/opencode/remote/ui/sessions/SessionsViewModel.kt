@@ -161,6 +161,14 @@ class SessionsViewModel @Inject constructor(
         }
     }
 
+    /** Get all sessions for a project directory from the unfiltered cache. */
+    fun allSessionsForProject(directory: String): List<SessionInfo> =
+        allSessions.filter { it.directory == directory }
+
+    /** Check whether children for a parent need refreshing (not yet loaded). */
+    fun shouldRefreshChildren(parentId: String): Boolean =
+        !childSessionStore.hasLoadedChildren(parentId)
+
     /** Get children for a parent session synchronously. */
     fun getChildSessionIds(parentId: String): Set<String> =
         childSessionStore.getChildren(parentId)
