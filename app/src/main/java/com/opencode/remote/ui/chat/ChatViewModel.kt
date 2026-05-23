@@ -8,6 +8,8 @@ import androidx.lifecycle.viewModelScope
 import com.opencode.remote.OConnectorApp
 import com.opencode.remote.R
 import com.opencode.remote.data.api.dto.*
+import com.opencode.remote.data.datastore.ConnectionPreferences
+import com.opencode.remote.data.datastore.StoredModelSelection
 import com.opencode.remote.data.repository.OConnectorRepository
 import com.opencode.remote.data.sse.SseEventBus
 import com.opencode.remote.ui.strings.AppLocale
@@ -97,6 +99,8 @@ data class ChatDisplayState(
     val isLoadingModels: Boolean = false,
     // Context state
     val contextUsageK: String = "0K",
+    // Selection state (agent/model/variant with committed/draft separation)
+    val selection: ChatSelectionUiState = ChatSelectionUiState(),
     // Blocking interaction state (permission/question bubbles)
     val pendingPermission: PermissionRequestData? = null,
     val pendingQuestion: QuestionRequestData? = null,
@@ -147,12 +151,14 @@ data class ChatUiState(
     val pendingQuestion get() = chatDisplay.pendingQuestion
     val isBlocked get() = chatDisplay.isBlocked
     val recoveryPending get() = chatDisplay.recoveryPending
+    val selection get() = chatDisplay.selection
 }
 
 @HiltViewModel
 class ChatViewModel @Inject constructor(
     private val repository: OConnectorRepository,
     private val sseEventBus: SseEventBus,
+    private val connectionPreferences: ConnectionPreferences,
     @ApplicationContext private val appContext: Context,
 ) : ViewModel() {
 
@@ -420,7 +426,13 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 val agents = repository.listAgents()
-                _uiState.update { it.copy(chatDisplay = it.chatDisplay.copy(availableAgents = agents, availableAgentsError = false)) }
+                _uiState.update {
+                    it.copy(chatDisplay = it.chatDisplay.copy(
+                        availableAgents = agents,
+                        availableAgentsError = false,
+                        selection = it.chatDisplay.selection.copy(availableAgents = agents),
+                    ))
+                }
             } catch (e: Exception) {
                 Log.w(TAG, "Failed to load agents", e)
                 _uiState.update { it.copy(chatDisplay = it.chatDisplay.copy(availableAgentsError = true)) }
@@ -1016,10 +1028,13 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 repository.beginStreaming(_uiState.value.sessionId, agentName)
-                val model = _uiState.value.selectedModel
+                val committed = _uiState.value.selection.committed
+                val providerId = committed.model?.providerId ?: _uiState.value.selectedModel?.providerID
+                val modelId = committed.model?.modelId ?: _uiState.value.selectedModel?.id
+                val variant = committed.variant
                 repository.sendMessage(
-                    _uiState.value.sessionId, text, _uiState.value.selectedAgent,
-                    model?.providerID, model?.id,
+                    _uiState.value.sessionId, text, agentName,
+                    providerId, modelId, variant,
                     _uiState.value.sessionDirectory,
                 )
                 // prompt_async returns 204 immediately — SSE events drive the rest
@@ -1253,23 +1268,89 @@ class ChatViewModel @Inject constructor(
 
     // ── Model Methods ──────────────────────────────────────────────────
 
-    fun loadModels() {
+    fun loadProviders() {
         if (_uiState.value.isLoadingModels) return  // already loading
         _uiState.update { it.copy(chatDisplay = it.chatDisplay.copy(isLoadingModels = true)) }
         viewModelScope.launch {
             try {
-                repository.listProviders()
-                val models = repository.getCachedModels()
-                _uiState.update { it.copy(chatDisplay = it.chatDisplay.copy(availableModels = models, isLoadingModels = false)) }
+                val providers = repository.listProviders()
+                val connected = providers.connected
+                val options = buildModelOptions(providers.providers, connected)
+                // Also keep legacy availableModels populated for backward compat
+                val legacyModels = repository.getCachedModels()
+                val currentAgents = _uiState.value.availableAgents
+                val currentSelection = _uiState.value.selection
+                val normalized = normalizeSelectionState(
+                    currentSelection.copy(availableModels = options, availableAgents = currentAgents)
+                )
+                _uiState.update {
+                    it.copy(chatDisplay = it.chatDisplay.copy(
+                        selection = normalized,
+                        availableModels = legacyModels,
+                        isLoadingModels = false,
+                    ))
+                }
+                // Restore saved selection preferences now that models + agents are loaded
+                restoreSelection()
             } catch (e: Exception) {
-                Log.w(TAG, "Failed to load models", e)
+                Log.w(TAG, "Failed to load providers", e)
                 _uiState.update { it.copy(chatDisplay = it.chatDisplay.copy(isLoadingModels = false)) }
             }
         }
     }
 
+    fun loadModels() = loadProviders()
+
     fun selectModel(model: ModelInfo) {
         _uiState.update { it.copy(chatDisplay = it.chatDisplay.copy(selectedModel = model)) }
+    }
+
+    private fun buildModelOptions(
+        providers: List<ProviderInfo>,
+        connectedIds: List<String> = emptyList(),
+    ): List<ModelSelectionOption> {
+        val filtered = if (connectedIds.isNotEmpty()) {
+            providers.filter { it.id in connectedIds }
+        } else {
+            providers
+        }
+        return filtered.flatMap { provider ->
+            provider.models.map { (modelId, model) ->
+                ModelSelectionOption(
+                    ref = ModelSelectionRef(provider.id, modelId),
+                    providerName = provider.name ?: provider.id,
+                    modelName = model.name ?: modelId,
+                    variants = model.variants.keys.toList(),
+                )
+            }
+        }.sortedBy { it.displayLabel }
+    }
+
+    private fun normalizeSelectionState(state: ChatSelectionUiState): ChatSelectionUiState {
+        var draft = state.draft
+
+        // Validate draft.agent exists in availableAgents
+        if (draft.agent != null && draft.agent !in state.availableAgents.map { it.name }) {
+            draft = draft.copy(agent = null)
+        }
+
+        // Validate draft.model exists in availableModels
+        if (draft.model != null && draft.model !in state.availableModels.map { it.ref }) {
+            draft = draft.copy(model = null, variant = null)
+        }
+
+        // Validate draft.variant exists in selected model's variants
+        if (draft.variant != null) {
+            val modelVariants = state.availableModels
+                .find { it.ref == draft.model }
+                ?.variants
+                .orEmpty()
+            if (draft.variant !in modelVariants) {
+                draft = draft.copy(variant = null)
+            }
+        }
+
+        return state.copy(draft = draft)
     }
 
     fun syncModelWithAgent(agentName: String?) {
@@ -1320,8 +1401,166 @@ class ChatViewModel @Inject constructor(
     }
 
     fun selectAgent(agentName: String?) {
-        _uiState.update { it.copy(chatDisplay = it.chatDisplay.copy(selectedAgent = agentName, showAgentPicker = false)) }
+        _uiState.update {
+            val newConfig = it.selection.committed.copy(agent = agentName)
+            it.copy(chatDisplay = it.chatDisplay.copy(
+                selectedAgent = agentName,
+                showAgentPicker = false,
+                selection = it.chatDisplay.selection.copy(
+                    committed = newConfig,
+                    draft = newConfig,
+                ),
+            ))
+        }
         syncModelWithAgent(agentName)
+    }
+
+    // ── Selection Dialog Methods ─────────────────────────────────────
+
+    fun openSelectionDialog() {
+        val committed = _uiState.value.selection.committed
+        _uiState.update {
+            it.copy(chatDisplay = it.chatDisplay.copy(
+                selection = it.chatDisplay.selection.copy(
+                    isDialogOpen = true,
+                    draft = committed,
+                ),
+            ))
+        }
+    }
+
+    fun dismissSelectionDialog() {
+        val committed = _uiState.value.selection.committed
+        _uiState.update {
+            it.copy(chatDisplay = it.chatDisplay.copy(
+                selection = it.chatDisplay.selection.copy(
+                    isDialogOpen = false,
+                    draft = committed,
+                ),
+            ))
+        }
+    }
+
+    fun confirmSelectionDialog() {
+        val draft = _uiState.value.selection.draft
+        _uiState.update {
+            it.copy(chatDisplay = it.chatDisplay.copy(
+                selection = it.chatDisplay.selection.copy(
+                    isDialogOpen = false,
+                    committed = draft,
+                ),
+            ))
+        }
+        // Update backward-compat fields
+        syncSelectionToLegacyFields(draft)
+        // Persist selection
+        viewModelScope.launch { persistSelection(draft) }
+    }
+
+    fun updateDraftAgent(agent: String?) {
+        _uiState.update {
+            val newDraft = it.selection.draft.copy(agent = agent)
+            it.copy(chatDisplay = it.chatDisplay.copy(
+                selection = normalizeSelectionState(it.selection.copy(draft = newDraft)),
+            ))
+        }
+    }
+
+    fun updateDraftModel(model: ModelSelectionRef?) {
+        _uiState.update {
+            val newDraft = it.selection.draft.copy(model = model, variant = null)
+            it.copy(chatDisplay = it.chatDisplay.copy(
+                selection = normalizeSelectionState(it.selection.copy(draft = newDraft)),
+            ))
+        }
+    }
+
+    fun updateDraftVariant(variant: String?) {
+        _uiState.update {
+            val newDraft = it.selection.draft.copy(variant = variant)
+            it.copy(chatDisplay = it.chatDisplay.copy(
+                selection = it.selection.copy(draft = newDraft),
+            ))
+        }
+    }
+
+    /** Sync selection state to legacy fields for backward compat during migration. */
+    private fun syncSelectionToLegacyFields(config: ChatSelectionConfig) {
+        val selectedModelInfo = config.model?.let { ref ->
+            ModelInfo(id = ref.modelId, name = ref.modelId, providerID = ref.providerId)
+        }
+        _uiState.update {
+            it.copy(chatDisplay = it.chatDisplay.copy(
+                selectedAgent = config.agent,
+                selectedModel = selectedModelInfo,
+            ))
+        }
+    }
+
+    // ── Selection Persistence ─────────────────────────────────────
+
+    private suspend fun persistSelection(config: ChatSelectionConfig) {
+        val sessionId = _uiState.value.sessionId
+        if (sessionId.isBlank()) return
+        try {
+            connectionPreferences.saveSelectedAgent(sessionId, config.agent)
+            if (config.model != null) {
+                connectionPreferences.saveSelectedModel(sessionId, StoredModelSelection(config.model.providerId, config.model.modelId))
+            } else {
+                connectionPreferences.saveSelectedModel(sessionId, null)
+            }
+            connectionPreferences.saveSelectedVariant(sessionId, config.variant)
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to persist selection", e)
+        }
+    }
+
+    private suspend fun restoreSelection() {
+        val sessionId = _uiState.value.sessionId
+        if (sessionId.isBlank()) return
+        try {
+            val agent = connectionPreferences.getSelectedAgent(sessionId)
+            val storedModel = connectionPreferences.getSelectedModel(sessionId)
+            val variant = connectionPreferences.getSelectedVariant(sessionId)
+            val model = storedModel?.let { ModelSelectionRef(it.providerId, it.modelId) }
+            val config = ChatSelectionConfig(agent = agent, model = model, variant = variant)
+            val normalized = normalizeSelectionConfig(config, _uiState.value.selection.availableModels, _uiState.value.availableAgents)
+            _uiState.update {
+                it.copy(chatDisplay = it.chatDisplay.copy(
+                    selection = it.chatDisplay.selection.copy(
+                        committed = normalized,
+                        draft = normalized,
+                    ),
+                ))
+            }
+            syncSelectionToLegacyFields(normalized)
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to restore selection", e)
+        }
+    }
+
+    private fun normalizeSelectionConfig(
+        config: ChatSelectionConfig,
+        availableModels: List<ModelSelectionOption>,
+        availableAgents: List<AgentInfo>,
+    ): ChatSelectionConfig {
+        var result = config
+        // Validate agent
+        if (result.agent != null && result.agent !in availableAgents.map { it.name }) {
+            result = result.copy(agent = null)
+        }
+        // Validate model
+        if (result.model != null && result.model !in availableModels.map { it.ref }) {
+            result = result.copy(model = null, variant = null)
+        }
+        // Validate variant
+        if (result.variant != null) {
+            val modelVariants = availableModels.find { it.ref == result.model }?.variants.orEmpty()
+            if (result.variant !in modelVariants) {
+                result = result.copy(variant = null)
+            }
+        }
+        return result
     }
 
     fun clearError() {
