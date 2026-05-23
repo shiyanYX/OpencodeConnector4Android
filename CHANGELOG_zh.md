@@ -2,6 +2,47 @@
 
 OConnector 的所有重要变更都会记录在此文件中。
 
+## [1.4.0] - 2026-05-23
+
+### 新增
+
+- **统一聊天设置对话框** — 聊天输入栏中间琴键现为 Settings 按钮（⚙）。点击弹出对话框，可配置当前会话的 Agent、Model 和 Variant。Confirm 提交更改，Cancel 回退（committed/draft 分离模式）。选择项按会话持久化，重新进入时自动恢复。
+- **Variant 选择** — 当服务端提供 variants 时，可选择特定模型变体（如不同的量化级别）。所选 variant 随 prompt 请求发送，服务端精确使用所选配置。
+- **Provider/Model API** — 新增 `GET /provider` 端点支持，包含 `ProviderList`、`ProviderInfo`、`ProviderModelInfo` DTO。模型列表显示供应商名称、模型名称和可用变体。
+- **选择持久化** — Agent、Model、Variant 选择按会话保存到 `ConnectionPreferences`，重新进入聊天时自动恢复。
+- **基于时间的会话分组** — 会话按时间分组显示：今天、昨天、本周、更早。粘性分组标题使用 `surfaceVariant` 背景。由 `SessionGrouper` 工具驱动，配合相对时间显示。
+- **相对时间显示** — 会话时间戳显示"刚刚"、"5 分钟前"、"2 小时前"，而非绝对日期。
+- **会话搜索** — 项目会话列表顶部新增搜索栏，带 300ms 防抖过滤。按会话标题搜索。
+- **活跃会话状态点** — 绿色脉冲圆点（StatusDot）指示活跃/忙碌的会话。`ActiveSessionStore` 通过 SSE 事件跟踪会话状态。
+- **项目忙碌指示** — 当项目中任何会话正在运行时，项目卡片上显示动画脉冲点。
+- **子会话树** — 在父会话下展开/折叠子会话。缩进树形布局（24dp 缩进）配折叠箭头。`ChildSessionStore` 通过 `GET /session/children` API 管理父子关系。
+- **紧凑密度模式** — 可选的会话列表紧凑显示密度，保存在 `ConnectionPreferences`。
+- **会话摘要统计** — 每个会话卡片显示快速统计：新增数（+N）、删除数（-N）、文件变更数（Ff），从工具调用中提取。
+- **Agent 加载失败重试** — 当 Agent 列表加载失败时，聊天界面显示重试按钮，而非静默失败。
+- **新 SSE 事件处理** — `session.status` 和 `session.children` 事件在 ChatViewModel 中处理，实现实时状态和层级更新。
+- **新 MessagePart 类型** — 支持 `file`、`agent`、`snapshot`、`patch`、`retry`、`compaction`、`subtask` 类型（此前仅支持 `text`、`tool-call`、`thinking`）。
+- **会话 API 端点** — `GET /session/status` 和 `GET /session/children` 用于会话状态轮询和子会话发现。
+- **`session.deleted` SSE 处理器** — 删除的会话立即从列表移除，无需等待手动刷新。
+
+### 变更
+
+- **聊天输入栏中间键** — 从模型名称显示改为 Settings 触发器（⚙ 图标）。点击打开统一设置对话框，替代原有模型下拉菜单。
+- **顶部栏 AgentPicker 已移除** — 之前位于顶部栏的 Agent 选择按钮已删除。Agent 选择现统一在 Settings 对话框中。
+- **删除废弃代码** — 移除 `ModelSelector.kt`、`ContextUsageDisplay.kt`、`AgentPickerButton.kt` 和 `showAgentPicker` 状态——均被统一设置对话框取代。
+- **SessionInfo DTO 扩展** — 新增 `archived`、`partID` 和 `SessionPermission` pattern 字段。
+- **SessionsScreen 重新设计** — 完全重写，集成时间分组、搜索、状态点、子会话树和摘要统计。现使用 `SessionsUiState`（含 search/grouping/agentError 字段）。
+
+### 修复
+
+- **ModelRef 构建健壮性** — `buildModelOptions()` 使用 `model.id.ifBlank { modelKey }` 替代原始 map key，避免服务端返回的 model ID 与 map key 不同时出错。
+- **Variants 排序** — 变体列表按字母排序（`model.variants.keys.sorted()`），UI 显示顺序稳定。
+- **双向规范化** — `normalizeSelectionState()` 现在同时验证 committed 和 draft 选择（此前仅 draft），防止 `restoreSelection` 后出现无效引用。
+- **modelName 三层回退** — 显示标签依次回退 `model.name → model.id → mapKey`（此前仅 `model.name → mapKey`）。
+- **子会话去重** — 修复子会话在列表中重复显示的问题。新增去重辅助和未过滤子会话查找。
+- **移除隐藏门控** — 子会话此前需要"显示隐藏"开关才能出现；现在始终在树中可见。
+- **会话刷新守卫** — 新增守卫防止并发会话列表刷新导致 UI 状态损坏。
+- **服务器不可达时启动崩溃** — 延迟 SSE 服务启动，直到成功验证连接后才启动，防止保存的服务器离线时 App 启动崩溃。
+
 ## [1.3.1] - 2026-05-18
 
 ### 新增

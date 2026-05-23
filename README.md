@@ -17,6 +17,12 @@ An Android client for the [OpenCode](https://opencode.ai) AI coding assistant. C
 - **In-app update check** — automatically checks GitHub for new versions on startup, one-tap APK download & install (proxied for China)
 - **Background SSE stability** — foreground service keeps the connection alive when the app is in background
 - **State persistence across app kill** — question/permission bubbles and streaming output survive process death via disk cache; re-enter any session and pick up exactly where you left off
+- **Unified chat settings** — configure Agent, Model, and Variant per-session from a single Settings dialog in the chat input bar
+- **Variant selection** — choose specific model variants (e.g. quantization levels) when the server provides them
+- **Time-based session grouping** — sessions grouped by Today / Yesterday / This Week / Older with relative timestamps
+- **Child session tree** — expand/collapse child sessions in a tree layout under their parent
+- **Session search** — debounced search bar to filter sessions by title
+- **Active session status dots** — real-time green pulsing dots indicate busy sessions
 - Real-time AI chat with SSE streaming
 - Tool call rendering (thinking bubbles, tool summaries)
 - Todo task panel overlay

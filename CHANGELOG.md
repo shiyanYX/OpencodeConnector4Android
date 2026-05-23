@@ -2,6 +2,47 @@
 
 All notable changes to OConnector will be documented in this file.
 
+## [1.4.0] - 2026-05-23
+
+### Added
+
+- **Unified chat settings dialog** — the middle piano key in the chat input bar is now a Settings button (⚙). Tapping it opens a dialog where you can configure Agent, Model, and Variant for the current session. Changes are committed on Confirm and reverted on Cancel (committed/draft separation). Selections are persisted per-session and restored on re-entry.
+- **Variant selection** — choose a specific model variant (e.g. different quantization levels) when the server provides variants. The selected variant is sent in the prompt request so the server uses the exact configuration you picked.
+- **Provider/Model API** — new `GET /provider` endpoint support with `ProviderList`, `ProviderInfo`, and `ProviderModelInfo` DTOs. Models are listed with their provider name, model name, and available variants.
+- **Selection persistence** — Agent, Model, and Variant choices are saved per-session to `ConnectionPreferences` and automatically restored when re-entering a chat.
+- **Time-based session grouping** — sessions are grouped by time: Today, Yesterday, This Week, Older. Sticky group headers with `surfaceVariant` background. Powered by `SessionGrouper` utility with relative time display.
+- **Relative time display** — session timestamps show "just now", "5m ago", "2h ago" instead of absolute dates for recent sessions.
+- **Session search** — search bar at the top of the project sessions screen with debounced filtering (300ms). Filters sessions by title.
+- **Active session status dots** — green pulsing dot (StatusDot) indicates active/busy sessions. `ActiveSessionStore` tracks session status from SSE events.
+- **Project busy indicator** — animated dot on project cards when any session within that project is actively running.
+- **Child session tree** — expand/collapse child sessions under their parent session. Indented tree layout (24dp indent) with chevron toggle. `ChildSessionStore` manages parent-child relationships via `GET /session/children` API.
+- **Compact density mode** — optional compact display density for the sessions list, persisted in `ConnectionPreferences`.
+- **Session summary stats** — each session card shows quick stats: number of additions (+N), deletions (-N), and file changes (Ff) derived from tool calls.
+- **Agent load failure retry** — when the agent list fails to load, a retry button appears in the chat screen instead of silently failing.
+- **New SSE event handlers** — `session.status` and `session.children` events processed in ChatViewModel for real-time status and hierarchy updates.
+- **New MessagePart types** — support for `file`, `agent`, `snapshot`, `patch`, `retry`, `compaction`, `subtask` part types (previously only `text`, `tool-call`, `thinking`).
+- **Session API endpoints** — `GET /session/status` and `GET /session/children` for session status polling and child session discovery.
+- **`session.deleted` SSE handler** — deleted sessions are immediately removed from the list without waiting for a manual refresh.
+
+### Changed
+
+- **Chat input bar middle key** — changed from model name display to Settings trigger (⚙ icon). Tapping opens the unified settings dialog instead of a model dropdown.
+- **TopAppBar AgentPicker removed** — the agent picker button previously in the top bar has been deleted. Agent selection is now exclusively in the Settings dialog.
+- **Deleted dead code** — removed `ModelSelector.kt`, `ContextUsageDisplay.kt`, `AgentPickerButton.kt`, and `showAgentPicker` state — all superseded by the unified settings dialog.
+- **SessionInfo DTO expanded** — added `archived`, `partID`, and `SessionPermission` pattern fields.
+- **SessionsScreen redesigned** — full rewrite with time grouping, search, status dots, child trees, and summary stats. Now uses `SessionsUiState` with search/grouping/agentError fields.
+
+### Fixed
+
+- **ModelRef construction robustness** — `buildModelOptions()` now uses `model.id.ifBlank { modelKey }` instead of raw map key, preventing mismatch when the server returns a different model ID than the map key.
+- **Variants sorted** — variant list is now alphabetically sorted (`model.variants.keys.sorted()`) for stable UI display order.
+- **Bidirectional normalize** — `normalizeSelectionState()` now validates both committed and draft selections (previously only draft), preventing stale references after `restoreSelection`.
+- **modelName 3-tier fallback** — display label falls back through `model.name → model.id → mapKey` instead of just `model.name → mapKey`.
+- **Child session dedup** — fixed duplicate child sessions appearing in the list. Added dedup helper and unfiltered child lookup.
+- **Removed hide gate** — child sessions previously required a "show hidden" toggle to appear; now always visible in the tree.
+- **Session refresh guard** — added guard to prevent concurrent session list refreshes from corrupting the UI state.
+- **Startup crash when server unreachable** — deferred SSE service start until after a successful connection is verified, preventing crash on app launch when the saved server is offline.
+
 ## [1.3.1] - 2026-05-18
 
 ### Added
