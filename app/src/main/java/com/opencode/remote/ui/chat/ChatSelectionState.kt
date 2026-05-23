@@ -46,12 +46,17 @@ data class ChatSelectionUiState(
 ) {
     /** Variants available for the currently drafted model. */
     val draftVariants: List<String>
-        get() = availableModels
-            .find { it.ref == draft.model }
-            ?.variants
-            .orEmpty()
+        get() = resolveModel(draft.model)?.variants.orEmpty()
 
     /** Whether any non-default selection has been made. */
     val hasExplicitOverrides: Boolean
         get() = committed.agent != null || committed.model != null || committed.variant != null
+
+    /** Resolve a model reference to its full option, or null if not found. */
+    fun resolveModel(ref: ModelSelectionRef?): ModelSelectionOption? =
+        ref?.let { target ->
+            availableModels.firstOrNull { opt ->
+                opt.ref.providerId == target.providerId && opt.ref.modelId == target.modelId
+            }
+        }
 }
