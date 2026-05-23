@@ -1311,40 +1311,20 @@ class ChatViewModel @Inject constructor(
         return filtered.flatMap { provider ->
             provider.models.map { (modelId, model) ->
                 ModelSelectionOption(
-                    ref = ModelSelectionRef(provider.id, modelId),
+                    ref = ModelSelectionRef(provider.id, model.id.ifBlank { modelId }),
                     providerName = provider.name ?: provider.id,
-                    modelName = model.name ?: modelId,
-                    variants = model.variants.keys.toList(),
+                    modelName = model.name ?: model.id.ifBlank { modelId },
+                    variants = model.variants.keys.sorted(),
                 )
             }
         }.sortedBy { it.displayLabel }
     }
 
     private fun normalizeSelectionState(state: ChatSelectionUiState): ChatSelectionUiState {
-        var draft = state.draft
-
-        // Validate draft.agent exists in availableAgents
-        if (draft.agent != null && draft.agent !in state.availableAgents.map { it.name }) {
-            draft = draft.copy(agent = null)
-        }
-
-        // Validate draft.model exists in availableModels
-        if (draft.model != null && draft.model !in state.availableModels.map { it.ref }) {
-            draft = draft.copy(model = null, variant = null)
-        }
-
-        // Validate draft.variant exists in selected model's variants
-        if (draft.variant != null) {
-            val modelVariants = state.availableModels
-                .find { it.ref == draft.model }
-                ?.variants
-                .orEmpty()
-            if (draft.variant !in modelVariants) {
-                draft = draft.copy(variant = null)
-            }
-        }
-
-        return state.copy(draft = draft)
+        val committed = normalizeSelectionConfig(state.committed, state)
+        val draftBase = state.copy(committed = committed)
+        val draft = normalizeSelectionConfig(state.draft, draftBase)
+        return state.copy(committed = committed, draft = draft)
     }
 
     fun syncModelWithAgent(agentName: String?) {
@@ -1554,6 +1534,33 @@ class ChatViewModel @Inject constructor(
             }
         }
         return result
+    }
+
+    private fun normalizeSelectionConfig(
+        config: ChatSelectionConfig,
+        options: ChatSelectionUiState,
+    ): ChatSelectionConfig {
+        val model = config.model?.takeIf { options.resolveModel(it) != null }
+        val availableVariants = options.resolveModel(model)?.variants.orEmpty()
+        val variant = config.variant?.takeIf { it in availableVariants }
+        val agent = config.agent?.takeIf { it in options.availableAgents.map { a -> a.name } }
+        return config.copy(agent = agent, model = model, variant = variant)
+    }
+
+    private fun selectionFromMessageInfo(
+        info: MessageInfoData,
+        fallbackAgent: String? = null,
+    ): ChatSelectionConfig? {
+        val agent = info.agent?.takeIf { it.isNotBlank() }
+            ?: fallbackAgent?.takeIf { it.isNotBlank() }
+        val providerId = info.model?.providerID?.takeIf { it.isNotBlank() }
+        val modelId = info.model?.modelID?.takeIf { it.isNotBlank() }
+        val model = if (providerId != null && modelId != null) {
+            ModelSelectionRef(providerId, modelId)
+        } else null
+        val variant = info.resolvedVariant?.takeIf { it.isNotBlank() }
+        if (agent == null && model == null && variant == null) return null
+        return ChatSelectionConfig(agent = agent, model = model, variant = variant)
     }
 
     fun clearError() {
