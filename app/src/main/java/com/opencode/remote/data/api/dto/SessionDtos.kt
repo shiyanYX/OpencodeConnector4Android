@@ -118,7 +118,10 @@ data class MessageInfoData(
     val tokens: MessageTokens? = null,
     /** 服务器可能返回 boolean(true) 或 object({diffs:[...]})，用 JsonElement 兼容 */
     val summary: JsonElement? = null,
-)
+    val variant: String? = null,
+) {
+    val resolvedVariant: String? get() = model?.variant ?: variant
+}
 
 @Serializable
 data class MessageModel(
@@ -126,6 +129,7 @@ data class MessageModel(
     val providerID: String? = null,
     @SerialName("modelID")
     val modelID: String? = null,
+    val variant: String? = null,
 )
 
 @Serializable
@@ -225,6 +229,7 @@ data class SendMessageRequest(
     val agent: String? = null,
     /** Nested model reference — server expects { "model": { "providerID": "...", "modelID": "..." } } */
     val model: ModelRef? = null,
+    val variant: String? = null,
 )
 
 /** Model reference matching the server's PromptInput.model (ModelRef schema). */

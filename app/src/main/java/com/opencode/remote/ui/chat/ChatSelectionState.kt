@@ -1,0 +1,57 @@
+package com.opencode.remote.ui.chat
+
+import com.opencode.remote.data.api.dto.AgentInfo
+
+/**
+ * Lightweight model pointer — uniquely identifies a model across providers.
+ */
+data class ModelSelectionRef(
+    val providerId: String,
+    val modelId: String,
+)
+
+/**
+ * A model option available for selection, with display metadata.
+ */
+data class ModelSelectionOption(
+    val ref: ModelSelectionRef,
+    val providerName: String,
+    val modelName: String,
+    val variants: List<String> = emptyList(),
+) {
+    val displayLabel: String get() = "$providerName / $modelName"
+}
+
+/**
+ * Committed or draft selection configuration.
+ * Null means "auto" (server default).
+ */
+data class ChatSelectionConfig(
+    val agent: String? = null,
+    val model: ModelSelectionRef? = null,
+    val variant: String? = null,
+)
+
+/**
+ * Full UI state for the chat selection settings dialog.
+ * Uses committed/draft separation: draft is edited in the dialog,
+ * committed is the active selection.
+ */
+data class ChatSelectionUiState(
+    val isDialogOpen: Boolean = false,
+    val availableAgents: List<AgentInfo> = emptyList(),
+    val availableModels: List<ModelSelectionOption> = emptyList(),
+    val committed: ChatSelectionConfig = ChatSelectionConfig(),
+    val draft: ChatSelectionConfig = ChatSelectionConfig(),
+) {
+    /** Variants available for the currently drafted model. */
+    val draftVariants: List<String>
+        get() = availableModels
+            .find { it.ref == draft.model }
+            ?.variants
+            .orEmpty()
+
+    /** Whether any non-default selection has been made. */
+    val hasExplicitOverrides: Boolean
+        get() = committed.agent != null || committed.model != null || committed.variant != null
+}
