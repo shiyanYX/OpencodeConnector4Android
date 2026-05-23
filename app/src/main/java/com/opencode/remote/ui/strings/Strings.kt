@@ -252,6 +252,16 @@ data class AppStrings(
     // Density
     val densityDefault: String,
     val densityCompact: String,
+
+    // Selection dialog
+    val selectionTitle: String,
+    val selectionAgent: String,
+    val selectionModel: String,
+    val selectionLevel: String,
+    val selectionAuto: String,
+    val selectionConfigure: String,
+    val selectionConfirm: String,
+    val selectionCancel: String,
 )
 
 // ─── English ───────────────────────────────────────────────────────
@@ -490,6 +500,16 @@ val enStrings = AppStrings(
     // Density
     densityDefault = "Default density",
     densityCompact = "Compact density",
+
+    // Selection dialog
+    selectionTitle = "Chat Settings",
+    selectionAgent = "Agent",
+    selectionModel = "Model",
+    selectionLevel = "Level",
+    selectionAuto = "Auto (default)",
+    selectionConfigure = "Configure",
+    selectionConfirm = "Confirm",
+    selectionCancel = "Cancel",
 )
 
 // ─── Chinese ───────────────────────────────────────────────────────
@@ -728,4 +748,14 @@ val zhStrings = AppStrings(
     // Density
     densityDefault = "默认密度",
     densityCompact = "紧凑密度",
+
+    // Selection dialog
+    selectionTitle = "对话设置",
+    selectionAgent = "Agent",
+    selectionModel = "模型",
+    selectionLevel = "级别",
+    selectionAuto = "自动 (默认)",
+    selectionConfigure = "配置",
+    selectionConfirm = "确认",
+    selectionCancel = "取消",
 )

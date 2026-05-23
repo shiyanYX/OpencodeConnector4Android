@@ -249,10 +249,10 @@ class OConnectorApiClient @Inject constructor(
      * Body: {"parts":[{"type":"text","text":"user message"}],"agent":"optional"}
      * AI 生成通过 SSE 事件流实时推送（message.part.delta, message.completed)
      */
-    suspend fun sendMessage(sessionId: String, text: String, agent: String? = null, providerID: String? = null, modelID: String? = null, directory: String? = null) {
+    suspend fun sendMessage(sessionId: String, text: String, agent: String? = null, providerID: String? = null, modelID: String? = null, variant: String? = null, directory: String? = null) {
         val modelRef = if (providerID != null || modelID != null) ModelRef(providerID, modelID) else null
         client.post("/session/$sessionId/prompt_async") {
-            setBody(SendMessageRequest(parts = listOf(SendMessagePart(text = text)), agent = agent, model = modelRef))
+            setBody(SendMessageRequest(parts = listOf(SendMessagePart(text = text)), agent = agent, model = modelRef, variant = variant))
             directory?.let {
                 parameter("directory", it)
                 header("x-opencode-directory", encDir(it))
@@ -434,9 +434,9 @@ class OConnectorApiClient @Inject constructor(
 
     // ─── Config / Providers ─────────────────────────────────────────────
 
-    /** GET /config/providers → returns provider list with models */
+    /** GET /provider → returns provider list with models and connected status */
     suspend fun listProviders(): ProviderList =
-        client.get("/config/providers").body<ProviderList>()
+        client.get("/provider").body<ProviderList>()
 
     fun close() {
         try { client.close() } catch (_: Exception) {}

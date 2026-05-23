@@ -12,6 +12,7 @@ import com.opencode.remote.data.api.dto.ServerInfo
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -31,6 +32,24 @@ data class ConnectionConfig(
     val autoReconnect: Boolean = true,
     val serverId: String? = null,
 )
+
+data class StoredModelSelection(
+    val providerId: String,
+    val modelId: String,
+) {
+    fun serialize(): String = "$providerId:$modelId"
+
+    companion object {
+        fun deserialize(value: String): StoredModelSelection? {
+            val colonIndex = value.indexOf(':')
+            if (colonIndex <= 0) return null
+            return StoredModelSelection(
+                providerId = value.substring(0, colonIndex),
+                modelId = value.substring(colonIndex + 1),
+            )
+        }
+    }
+}
 
 @Singleton
 class ConnectionPreferences @Inject constructor(
@@ -247,4 +266,76 @@ class ConnectionPreferences @Inject constructor(
 
     suspend fun saveLastActiveServerId(id: String) =
         serverManager.saveLastActiveServerId(id)
+
+    // --- Per-session selection persistence ---
+
+    suspend fun saveSelectedAgent(sessionId: String, agent: String?) {
+        try {
+            context.dataStore.edit { prefs ->
+                if (agent != null) {
+                    prefs[stringPreferencesKey("sel_agent_$sessionId")] = agent
+                } else {
+                    prefs.remove(stringPreferencesKey("sel_agent_$sessionId"))
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to save selected agent", e)
+        }
+    }
+
+    suspend fun getSelectedAgent(sessionId: String): String? {
+        return try {
+            context.dataStore.data.first()[stringPreferencesKey("sel_agent_$sessionId")]
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to read selected agent", e)
+            null
+        }
+    }
+
+    suspend fun saveSelectedModel(sessionId: String, model: StoredModelSelection?) {
+        try {
+            context.dataStore.edit { prefs ->
+                if (model != null) {
+                    prefs[stringPreferencesKey("sel_model_$sessionId")] = model.serialize()
+                } else {
+                    prefs.remove(stringPreferencesKey("sel_model_$sessionId"))
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to save selected model", e)
+        }
+    }
+
+    suspend fun getSelectedModel(sessionId: String): StoredModelSelection? {
+        return try {
+            val serialized = context.dataStore.data.first()[stringPreferencesKey("sel_model_$sessionId")]
+            serialized?.let { StoredModelSelection.deserialize(it) }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to read selected model", e)
+            null
+        }
+    }
+
+    suspend fun saveSelectedVariant(sessionId: String, variant: String?) {
+        try {
+            context.dataStore.edit { prefs ->
+                if (variant != null) {
+                    prefs[stringPreferencesKey("sel_variant_$sessionId")] = variant
+                } else {
+                    prefs.remove(stringPreferencesKey("sel_variant_$sessionId"))
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to save selected variant", e)
+        }
+    }
+
+    suspend fun getSelectedVariant(sessionId: String): String? {
+        return try {
+            context.dataStore.data.first()[stringPreferencesKey("sel_variant_$sessionId")]
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to read selected variant", e)
+            null
+        }
+    }
 }

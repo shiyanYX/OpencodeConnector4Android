@@ -61,7 +61,7 @@ interface OConnectorRepository {
     // ─── Message Operations ──────────────────────────────────────────
 
     suspend fun getMessages(sessionId: String, directory: String? = null, limit: Int? = null): List<MessageInfo>
-    suspend fun sendMessage(sessionId: String, message: String, agent: String? = null, providerID: String? = null, modelID: String? = null, directory: String? = null)
+    suspend fun sendMessage(sessionId: String, message: String, agent: String? = null, providerID: String? = null, modelID: String? = null, variant: String? = null, directory: String? = null)
 
     // ─── Permission / Question Replies ──────────────────────────────
 
@@ -381,8 +381,8 @@ class OConnectorRepositoryImpl @Inject constructor(
     override suspend fun getMessages(sessionId: String, directory: String?, limit: Int?): List<MessageInfo> =
         requireClient().getMessages(sessionId, directory, limit)
 
-    override suspend fun sendMessage(sessionId: String, message: String, agent: String?, providerID: String?, modelID: String?, directory: String?) =
-        requireClient().sendMessage(sessionId, message, agent, providerID, modelID, directory)
+    override suspend fun sendMessage(sessionId: String, message: String, agent: String?, providerID: String?, modelID: String?, variant: String?, directory: String?) =
+        requireClient().sendMessage(sessionId, message, agent, providerID, modelID, variant, directory)
 
     // ─── Permission / Question Replies ──────────────────────────────
 
