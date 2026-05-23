@@ -104,11 +104,11 @@ class SidePanelRepositoryTest {
         val providerList = ProviderList(
             providers = listOf(
                 ProviderInfo("openai", "OpenAI", models = mapOf(
-                    "gpt-4o" to ModelInfo("gpt-4o", "GPT-4o"),
-                    "gpt-4o-mini" to ModelInfo("gpt-4o-mini", "GPT-4o Mini"),
+                    "gpt-4o" to ProviderModelInfo("gpt-4o", "GPT-4o"),
+                    "gpt-4o-mini" to ProviderModelInfo("gpt-4o-mini", "GPT-4o Mini"),
                 )),
                 ProviderInfo("anthropic", "Anthropic", models = mapOf(
-                    "claude-3-opus" to ModelInfo("claude-3-opus", "Claude 3 Opus"),
+                    "claude-3-opus" to ProviderModelInfo("claude-3-opus", "Claude 3 Opus"),
                 )),
             ),
         )
@@ -156,8 +156,8 @@ class SidePanelRepositoryTest {
     @Test
     fun `getCachedModels returns cached models after listProviders`() = runTest {
         val models = listOf(
-            ModelInfo("gpt-4o", "GPT-4o"),
-            ModelInfo("claude-3-opus", "Claude 3 Opus"),
+            ProviderModelInfo("gpt-4o", "GPT-4o"),
+            ProviderModelInfo("claude-3-opus", "Claude 3 Opus"),
         )
         val providerList = ProviderList(
             providers = listOf(

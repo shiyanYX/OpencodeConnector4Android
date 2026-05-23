@@ -2,6 +2,7 @@ package com.opencode.remote.data.api.dto
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonElement
 
 /**
  * 实际 API: GET /project/current
@@ -80,6 +81,7 @@ data class FileContent(
 data class ProviderList(
     val providers: List<ProviderInfo> = emptyList(),
     val default: Map<String, String> = emptyMap(),
+    val connected: List<String> = emptyList(),
 )
 
 @Serializable
@@ -87,7 +89,7 @@ data class ProviderInfo(
     val id: String = "",
     val name: String? = null,
     /** Server returns models as a JSON object (Map keyed by model ID), not an array. */
-    val models: Map<String, ModelInfo> = emptyMap(),
+    val models: Map<String, ProviderModelInfo> = emptyMap(),
 )
 
 @Serializable
@@ -96,4 +98,12 @@ data class ModelInfo(
     val name: String? = null,
     val providerID: String? = null,
     val status: String? = null,
+)
+
+@Serializable
+data class ProviderModelInfo(
+    val id: String = "",
+    val name: String? = null,
+    val limit: Int? = null,
+    val variants: Map<String, JsonElement> = emptyMap(),
 )

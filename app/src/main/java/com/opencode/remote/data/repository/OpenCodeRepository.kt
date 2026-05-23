@@ -454,7 +454,9 @@ class OConnectorRepositoryImpl @Inject constructor(
             return ProviderList()
         }
         val providers = requireClient().listProviders()
-        cachedModels = providers.providers.flatMap { it.models.values }
+        cachedModels = providers.providers.flatMap { it.models.values }.map { p ->
+            ModelInfo(id = p.id, name = p.name)
+        }
         modelsCacheTime = System.currentTimeMillis()
         return providers
     }
