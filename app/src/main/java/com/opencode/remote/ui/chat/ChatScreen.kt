@@ -26,7 +26,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
@@ -236,23 +235,6 @@ fun ChatScreen(
                             }
                         },
                         actions = {
-                            if (uiState.availableAgents.isNotEmpty()) {
-                                AgentPickerButton(
-                                    selectedAgent = uiState.selectedAgent,
-                                    availableAgents = uiState.availableAgents,
-                                    showAgentPicker = uiState.showAgentPicker,
-                                    onTogglePicker = viewModel::toggleAgentPicker,
-                                    onSelectAgent = viewModel::selectAgent,
-                                )
-                            } else if (uiState.availableAgentsError) {
-                                IconButton(onClick = { viewModel.loadAgents() }) {
-                                    Icon(
-                                        Icons.Default.Refresh,
-                                        contentDescription = "retry load agents",
-                                        tint = Color(0xFFE57373),
-                                    )
-                                }
-                            }
                             if (uiState.todoItems.isNotEmpty()) {
                                 BadgedBox(
                                     badge = { Badge { Text("${uiState.todoItems.size}") } }
@@ -366,9 +348,7 @@ fun ChatScreen(
                             onSend = viewModel::sendMessage,
                             isSending = uiState.isSending || (uiState.isBlocked && !uiState.recoveryPending),
                             selectedModel = uiState.selectedModel,
-                            availableModels = uiState.availableModels,
-                            onSelectModel = viewModel::selectModel,
-                            isLoadingModels = uiState.isLoadingModels,
+                            onOpenSettings = viewModel::openSelectionDialog,
                             contextUsageK = uiState.contextUsageK,
                             onScrollToBottom = {
                                 shouldAutoScroll = true
@@ -551,6 +531,18 @@ fun ChatScreen(
                     onToggleFilePreview = viewModel::toggleFilePreview,
                 )
             }
+        }
+
+        // Settings dialog
+        if (uiState.selection.isDialogOpen) {
+            ChatSelectionConfigDialog(
+                selection = uiState.selection,
+                onDismiss = viewModel::dismissSelectionDialog,
+                onConfirm = viewModel::confirmSelectionDialog,
+                onAgentSelected = viewModel::updateDraftAgent,
+                onModelSelected = viewModel::updateDraftModel,
+                onVariantSelected = viewModel::updateDraftVariant,
+            )
         }
     }
 }

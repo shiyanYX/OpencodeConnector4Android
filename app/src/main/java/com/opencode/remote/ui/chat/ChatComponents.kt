@@ -16,12 +16,10 @@ import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -33,15 +31,12 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Build
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.DataUsage
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -372,21 +367,11 @@ internal fun ChatInputBar(
     onSend: () -> Unit,
     isSending: Boolean,
     selectedModel: ModelInfo?,
-    availableModels: List<ModelInfo>,
-    onSelectModel: (ModelInfo) -> Unit,
-    isLoadingModels: Boolean,
+    onOpenSettings: () -> Unit,
     contextUsageK: String,
     onScrollToBottom: () -> Unit = {},
 ) {
     val s = AppLocale.strings
-    var modelDropdownExpanded by remember { mutableStateOf(false) }
-
-    // Track press state for middle piano key (model selector)
-    val middleKeyInteractionSource = remember { MutableInteractionSource() }
-    val middleKeyPressed by middleKeyInteractionSource.interactions.collectAsState(
-        initial = null
-    )
-    val isMiddleKeyPressed = middleKeyPressed is PressInteraction.Press
 
     Surface(
         tonalElevation = 3.dp,
@@ -446,76 +431,22 @@ internal fun ChatInputBar(
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f),
                 )
 
-                // Middle key — model selector
+                // Middle key — Settings trigger
                 Box(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()
                         .height(40.dp)
-                        .then(
-                            if (!isLoadingModels) {
-                                Modifier.clickable(
-                                    interactionSource = middleKeyInteractionSource,
-                                    indication = null,
-                                ) { modelDropdownExpanded = true }
-                            } else {
-                                Modifier
-                            }
-                        )
-                        .background(
-                            if (isMiddleKeyPressed && !isLoadingModels) {
-                                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                            } else {
-                                Color.Transparent
-                            }
-                        ),
+                        .clickable { onOpenSettings() },
                     contentAlignment = Alignment.Center,
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = selectedModel?.name ?: "Model",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                    DropdownMenu(
-                        expanded = modelDropdownExpanded,
-                        onDismissRequest = { modelDropdownExpanded = false },
-                        modifier = Modifier.heightIn(max = 200.dp),
-                    ) {
-                        availableModels.forEach { model ->
-                            val isSelected = selectedModel?.id == model.id &&
-                                selectedModel?.name == model.name
-                            DropdownMenuItem(
-                                text = {
-                                    Text(
-                                        text = model.name ?: model.id ?: "Unknown",
-                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                },
-                                trailingIcon = {
-                                    if (isSelected) {
-                                        Icon(
-                                            Icons.Default.Check,
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.primary,
-                                        )
-                                    }
-                                },
-                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
-                                modifier = Modifier.height(36.dp),
-                                onClick = {
-                                    onSelectModel(model)
-                                    modelDropdownExpanded = false
-                                },
-                            )
-                        }
-                    }
+                    Text(
+                        text = selectedModel?.name ?: s.selectionConfigure,
+                        style = MaterialTheme.typography.labelSmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
 
                 // Divider 2
