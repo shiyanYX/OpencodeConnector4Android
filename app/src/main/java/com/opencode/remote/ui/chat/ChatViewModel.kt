@@ -82,7 +82,6 @@ data class ChatDisplayState(
     val showTodoPanel: Boolean = false,
     val availableAgents: List<AgentInfo> = emptyList(),
     val selectedAgent: String? = null,
-    val showAgentPicker: Boolean = false,
     val availableAgentsError: Boolean = false,
     // Panel state
     val isPanelOpen: Boolean = false,
@@ -134,7 +133,6 @@ data class ChatUiState(
     val showTodoPanel get() = chatDisplay.showTodoPanel
     val availableAgents get() = chatDisplay.availableAgents
     val selectedAgent get() = chatDisplay.selectedAgent
-    val showAgentPicker get() = chatDisplay.showAgentPicker
     val availableAgentsError get() = chatDisplay.availableAgentsError
     val isPanelOpen get() = chatDisplay.isPanelOpen
     val panelFiles get() = chatDisplay.panelFiles
@@ -1183,10 +1181,6 @@ class ChatViewModel @Inject constructor(
         _uiState.update { it.copy(chatDisplay = it.chatDisplay.copy(showTodoPanel = !it.chatDisplay.showTodoPanel)) }
     }
 
-    fun toggleAgentPicker() {
-        _uiState.update { it.copy(chatDisplay = it.chatDisplay.copy(showAgentPicker = !it.chatDisplay.showAgentPicker)) }
-    }
-
     // ── Panel Methods ──────────────────────────────────────────────────
 
     fun togglePanel() {
@@ -1405,7 +1399,6 @@ class ChatViewModel @Inject constructor(
             val newConfig = it.selection.committed.copy(agent = agentName)
             it.copy(chatDisplay = it.chatDisplay.copy(
                 selectedAgent = agentName,
-                showAgentPicker = false,
                 selection = it.chatDisplay.selection.copy(
                     committed = newConfig,
                     draft = newConfig,
