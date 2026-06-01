@@ -99,8 +99,7 @@ You can start the server from any directory — OConnector will discover all pro
 2. Enter PC IP, port, and credentials → tap **Connect**
 3. The session list shows all projects and sessions across your PC
 4. Tap a project to see its sessions, tap a session to enter chat
-5. Tap the eye icon in the top bar to hide or show child sessions
-6. Send messages, switch agents, track todos
+5. Expand/collapse child sessions in the tree view, send messages, switch agents, track todos
 
 ### Connecting via HTTPS Reverse Proxy
 

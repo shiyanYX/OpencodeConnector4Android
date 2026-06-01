@@ -31,6 +31,9 @@ All notable changes to OConnector will be documented in this file.
 - **Deleted dead code** — removed `ModelSelector.kt`, `ContextUsageDisplay.kt`, `AgentPickerButton.kt`, and `showAgentPicker` state — all superseded by the unified settings dialog.
 - **SessionInfo DTO expanded** — added `archived`, `partID`, and `SessionPermission` pattern fields.
 - **SessionsScreen redesigned** — full rewrite with time grouping, search, status dots, child trees, and summary stats. Now uses `SessionsUiState` with search/grouping/agentError fields.
+- **Removed eye button from chat top bar** — child session visibility toggle moved to project session list.
+- **Updated `availableModelsError` state handling** in ChatViewModel.
+- **Added diagnostic SSE event logging** (`SSE DIAG:` prefix) for future debugging.
 
 ### Fixed
 
@@ -42,6 +45,10 @@ All notable changes to OConnector will be documented in this file.
 - **Removed hide gate** — child sessions previously required a "show hidden" toggle to appear; now always visible in the tree.
 - **Session refresh guard** — added guard to prevent concurrent session list refreshes from corrupting the UI state.
 - **Startup crash when server unreachable** — deferred SSE service start until after a successful connection is verified, preventing crash on app launch when the saved server is offline.
+- **SSE generation mismatch (critical)** — root cause of streaming not working. `ChatViewModel.subscribeToEvents()` read `repository.currentGeneration` which could be higher than the SSE service's actual generation (e.g. after network recovery callback incremented it). The strict `gen < subscribedGeneration` filter discarded ALL events including `message.part.delta` and `session.idle`. Text appeared all at once (via fallback polling) and spinner persisted until 120s watchdog timeout. Fix: adopt the service's generation when mismatch detected instead of discarding events.
+- **SseForegroundService null-intent recovery** — when Android restarted the foreground service (e.g. after memory pressure), the null intent guard called `stopSelf()`, permanently killing SSE. Now recovers using `repository.currentGeneration` to resume the SSE subscription.
+- **session.idle streaming state cleanup** — force-clear all streaming state (`isStreaming`, `isSending`, `streamingSegments`, `pendingAssistantMessageId`) in `session.idle` handler's no-content guard path, instead of leaving spinner visible indefinitely.
+- **Model list display** — fixed `ProviderList` DTO to correctly parse server's `{all: [...]}` provider format with `@SerialName("all")`. Created `ModelLimitInfo` data class to handle server's `limit` field (object with context/input/output keys instead of plain integer).
 
 ## [1.3.1] - 2026-05-18
 

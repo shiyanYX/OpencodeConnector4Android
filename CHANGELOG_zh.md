@@ -31,6 +31,9 @@ OConnector 的所有重要变更都会记录在此文件中。
 - **删除废弃代码** — 移除 `ModelSelector.kt`、`ContextUsageDisplay.kt`、`AgentPickerButton.kt` 和 `showAgentPicker` 状态——均被统一设置对话框取代。
 - **SessionInfo DTO 扩展** — 新增 `archived`、`partID` 和 `SessionPermission` pattern 字段。
 - **SessionsScreen 重新设计** — 完全重写，集成时间分组、搜索、状态点、子会话树和摘要统计。现使用 `SessionsUiState`（含 search/grouping/agentError 字段）。
+- **移除聊天顶部栏眼睛按钮** — 子会话可见性切换已移至项目会话列表。
+- **更新 `availableModelsError` 状态处理** — ChatViewModel 中的错误状态处理优化。
+- **新增诊断性 SSE 事件日志** — `SSE DIAG:` 前缀，便于后续排查。
 
 ### 修复
 
@@ -42,6 +45,10 @@ OConnector 的所有重要变更都会记录在此文件中。
 - **移除隐藏门控** — 子会话此前需要"显示隐藏"开关才能出现；现在始终在树中可见。
 - **会话刷新守卫** — 新增守卫防止并发会话列表刷新导致 UI 状态损坏。
 - **服务器不可达时启动崩溃** — 延迟 SSE 服务启动，直到成功验证连接后才启动，防止保存的服务器离线时 App 启动崩溃。
+- **SSE 代次不匹配（严重）** — 流式输出失效的根本原因。`ChatViewModel.subscribeToEvents()` 读取的 `repository.currentGeneration` 可能高于 SSE 服务的实际代次（例如网络恢复回调自增后）。严格的 `gen < subscribedGeneration` 过滤丢弃了所有事件，包括 `message.part.delta` 和 `session.idle`。文本一次性出现（靠兜底轮询），加载圈持续旋转直到 120 秒看门狗超时。修复：检测到不匹配时采用服务的代次，而非丢弃事件。
+- **SseForegroundService null-intent 恢复** — Android 重启前台服务（如内存回收）时，null intent 守卫直接调用 `stopSelf()`，永久中断 SSE。现改为使用 `repository.currentGeneration` 恢复 SSE 订阅。
+- **session.idle 流式状态清理** — 在 `session.idle` 处理器的无内容守卫路径中强制清除所有流式状态（`isStreaming`、`isSending`、`streamingSegments`、`pendingAssistantMessageId`），而非让加载圈无限旋转。
+- **模型列表显示** — 修复 `ProviderList` DTO，正确解析服务端的 `{all: [...]}` 格式（使用 `@SerialName("all")`）。新增 `ModelLimitInfo` 数据类处理服务端的 `limit` 字段（含 context/input/output 键的对象，而非纯整数）。
 
 ## [1.3.1] - 2026-05-18
 
