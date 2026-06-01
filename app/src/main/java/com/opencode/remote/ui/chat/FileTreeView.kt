@@ -35,7 +35,6 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.opencode.remote.data.api.dto.FileNode
 
 @Composable
@@ -182,9 +181,7 @@ fun FileTreeView(
                                                 SelectionContainer {
                                                     Text(
                                                         text = content,
-                                                        style = MaterialTheme.typography.bodySmall,
-                                                        fontFamily = FontFamily.Monospace,
-                                                        lineHeight = 16.sp,
+                                                        style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
                                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                                     )
                                                 }

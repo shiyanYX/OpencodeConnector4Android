@@ -228,20 +228,20 @@ class SidePanelDtoTest {
     @Test
     fun `providerList with nested providers and models deserializes`() {
         val input = """{
-            "providers": [
+            "all": [
                 {
                     "id": "openai",
                     "name": "OpenAI",
                     "models": {
-                        "gpt-4o": {"id": "gpt-4o", "name": "GPT-4o"},
-                        "gpt-4o-mini": {"id": "gpt-4o-mini", "name": "GPT-4o Mini"}
+                        "gpt-4o": {"id": "gpt-4o", "name": "GPT-4o", "limit": {"context": 128000, "output": 16384}},
+                        "gpt-4o-mini": {"id": "gpt-4o-mini", "name": "GPT-4o Mini", "limit": {"context": 128000, "output": 16384}}
                     }
                 },
                 {
                     "id": "anthropic",
                     "name": "Anthropic",
                     "models": {
-                        "claude-3-opus": {"id": "claude-3-opus", "name": "Claude 3 Opus"}
+                        "claude-3-opus": {"id": "claude-3-opus", "name": "Claude 3 Opus", "limit": {"context": 200000, "output": 4096}}
                     }
                 }
             ]
@@ -256,6 +256,12 @@ class SidePanelDtoTest {
         assertEquals("GPT-4o", list.providers[0].models["gpt-4o"]?.name)
         assertEquals("GPT-4o Mini", list.providers[0].models["gpt-4o-mini"]?.name)
 
+        // Verify limit deserialization (server returns object, not int)
+        assertEquals(128000, list.providers[0].models["gpt-4o"]?.limit?.context)
+        assertEquals(16384, list.providers[0].models["gpt-4o"]?.limit?.output)
+        assertEquals(128000, list.providers[0].models["gpt-4o-mini"]?.limit?.context)
+        assertEquals(16384, list.providers[0].models["gpt-4o-mini"]?.limit?.output)
+
         // Second provider
         assertEquals("anthropic", list.providers[1].id)
         assertEquals("Anthropic", list.providers[1].name)
@@ -265,7 +271,7 @@ class SidePanelDtoTest {
 
     @Test
     fun `providerList with empty providers deserializes`() {
-        val input = """{"providers": []}"""
+        val input = """{"all": []}"""
         val list = json.decodeFromString<ProviderList>(input)
         assertTrue(list.providers.isEmpty())
     }

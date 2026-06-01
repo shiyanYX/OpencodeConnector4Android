@@ -1,6 +1,7 @@
 package com.opencode.remote.ui.serverlist
 
 import android.util.Log
+import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.opencode.remote.data.api.dto.ServerInfo
@@ -24,6 +25,7 @@ class ServerListViewModel @Inject constructor(
     private val repository: OConnectorRepository,
 ) : ViewModel() {
 
+    @Immutable
     data class ServerListUiState(
         val servers: List<ServerInfo> = emptyList(),
         val isConnecting: Boolean = false,

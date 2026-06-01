@@ -1,12 +1,17 @@
 package com.opencode.remote.ui
 
 import android.content.Intent
+import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import kotlinx.coroutines.delay
 import androidx.compose.ui.platform.LocalContext
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -42,20 +47,49 @@ object Routes {
 }
 
 @Composable
-fun OConnectorApp(initialIntent: Intent? = null) {
+fun OConnectorApp(
+    initialIntent: Intent? = null,
+    intentState: MutableState<Intent?>? = null
+) {
     val navController = rememberNavController()
     val context = LocalContext.current
     val pendingDeepLink = remember { mutableStateOf<Pair<String, String?>?>(null) }
 
-    // Handle notification deep link from initial intent or new intent
+    // Handle notification deep link from initial intent
     LaunchedEffect(initialIntent) {
         val intent = (context as? MainActivity)?.intent ?: initialIntent
         intent?.let { navigateFromIntent(it, navController, pendingDeepLink) }
     }
 
+    // Handle notification deep link from subsequent intents (e.g. tapped while foregrounded)
+    LaunchedEffect(intentState?.value) {
+        val state = intentState ?: return@LaunchedEffect
+        val intent = state.value ?: return@LaunchedEffect
+        // Skip if this is the initial intent (already handled above)
+        if (intent === initialIntent) return@LaunchedEffect
+
+        // Debounce: delay 500ms and skip if a newer intent arrived
+        delay(500)
+        if (intent !== state.value) return@LaunchedEffect
+
+        navigateFromIntent(intent, navController, pendingDeepLink)
+    }
+
     NavHost(
         navController = navController,
-        startDestination = Routes.SERVER_LIST
+        startDestination = Routes.SERVER_LIST,
+        enterTransition = { fadeIn(animationSpec = tween(300)) + slideIntoContainer(
+            AnimatedContentTransitionScope.SlideDirection.Start, animationSpec = tween(300)
+        ) },
+        exitTransition = { fadeOut(animationSpec = tween(300)) + slideOutOfContainer(
+            AnimatedContentTransitionScope.SlideDirection.Start, animationSpec = tween(300)
+        ) },
+        popEnterTransition = { fadeIn(animationSpec = tween(300)) + slideIntoContainer(
+            AnimatedContentTransitionScope.SlideDirection.End, animationSpec = tween(300)
+        ) },
+        popExitTransition = { fadeOut(animationSpec = tween(300)) + slideOutOfContainer(
+            AnimatedContentTransitionScope.SlideDirection.End, animationSpec = tween(300)
+        ) },
     ) {
         // === Server List (home) ===
         composable(Routes.SERVER_LIST) {
@@ -151,7 +185,18 @@ fun OConnectorApp(initialIntent: Intent? = null) {
         }
 
         // === Chat ===
-        composable(Routes.CHAT) { backStackEntry ->
+        composable(
+            route = Routes.CHAT,
+            enterTransition = { slideIntoContainer(
+                AnimatedContentTransitionScope.SlideDirection.Up, animationSpec = tween(350)
+            ) + fadeIn(animationSpec = tween(300)) },
+            exitTransition = { slideOutOfContainer(
+                AnimatedContentTransitionScope.SlideDirection.Down, animationSpec = tween(350)
+            ) + fadeOut(animationSpec = tween(300)) },
+            popExitTransition = { slideOutOfContainer(
+                AnimatedContentTransitionScope.SlideDirection.Down, animationSpec = tween(350)
+            ) + fadeOut(animationSpec = tween(300)) },
+        ) { backStackEntry ->
             val sessionId = backStackEntry.arguments?.getString("sessionId") ?: return@composable
             val encodedDir = backStackEntry.arguments?.getString("directory") ?: ""
             val directory = if (encodedDir.isNotBlank()) java.net.URLDecoder.decode(encodedDir, "UTF-8") else null

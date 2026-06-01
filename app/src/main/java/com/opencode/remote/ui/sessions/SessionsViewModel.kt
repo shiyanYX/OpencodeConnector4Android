@@ -1,9 +1,10 @@
 package com.opencode.remote.ui.sessions
 
 import android.util.Log
+import androidx.annotation.VisibleForTesting
+import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import androidx.annotation.VisibleForTesting
 import com.opencode.remote.data.api.dto.SessionInfo
 import com.opencode.remote.data.api.dto.MemoEntry
 import com.opencode.remote.data.datastore.ConnectionPreferences
@@ -27,6 +28,7 @@ import javax.inject.Inject
 
 enum class ListDensity { DEFAULT, COMPACT }
 
+@Immutable
 data class SessionsUiState(
     val sessions: List<SessionInfo> = emptyList(),
     val isLoading: Boolean = false,
@@ -35,7 +37,6 @@ data class SessionsUiState(
     /** project.worktree or project.id */
     val projectName: String? = null,
     val currentServerName: String? = null,
-    val hideChildSessions: Boolean = false,
     // Memo panel
     val isMemoPanelOpen: Boolean = false,
     val memos: List<MemoEntry> = emptyList(),
@@ -92,7 +93,6 @@ class SessionsViewModel @Inject constructor(
         loadProjectName()
         loadCurrentServerName()
         observeDarkMode()
-        observeHideChildSessions()
         observeListDensity()
         subscribeToSseEvents()
         startSessionsPolling()
@@ -106,32 +106,11 @@ class SessionsViewModel @Inject constructor(
         }
     }
 
-    private fun observeHideChildSessions() {
-        viewModelScope.launch {
-            prefs.hideChildSessions.collect { enabled ->
-                val visible = filterVisibleSessions(allSessions, enabled)
-                _uiState.update {
-                    it.copy(
-                        hideChildSessions = enabled,
-                        sessions = visible,
-                        groupedSessions = groupSessionsByTime(visible),
-                    )
-                }
-            }
-        }
-    }
-
     fun toggleDarkMode() {
         viewModelScope.launch {
             val newValue = !AppLocale.darkMode
             AppLocale.darkMode = newValue
             prefs.saveDarkMode(newValue)
-        }
-    }
-
-    fun toggleHideChildSessions() {
-        viewModelScope.launch {
-            prefs.saveHideChildSessions(!_uiState.value.hideChildSessions)
         }
     }
 
@@ -189,12 +168,12 @@ class SessionsViewModel @Inject constructor(
             }
             try {
                 allSessions = repository.listAllSessions()
-                val visible = filterVisibleSessions(allSessions, _uiState.value.hideChildSessions)
+                val visibleSessions = allSessions.filter { it.parentID.isNullOrBlank() }
                 _uiState.update {
                     it.copy(
-                        sessions = visible,
+                        sessions = visibleSessions,
                         isLoading = false,
-                        groupedSessions = groupSessionsByTime(visible),
+                        groupedSessions = groupSessionsByTime(visibleSessions),
                     )
                 }
             } catch (e: Exception) {
@@ -240,18 +219,19 @@ class SessionsViewModel @Inject constructor(
         searchJob?.cancel()
         if (query.isBlank()) {
             // Cleared — immediately restore full list
-            val visible = filterVisibleSessions(allSessions, _uiState.value.hideChildSessions)
+            val visibleSessions = allSessions.filter { it.parentID.isNullOrBlank() }
             _uiState.update {
                 it.copy(
-                    sessions = visible,
+                    sessions = visibleSessions,
                     isSearching = false,
-                    groupedSessions = groupSessionsByTime(visible),
+                    groupedSessions = groupSessionsByTime(visibleSessions),
                 )
             }
         } else {
             searchJob = viewModelScope.launch {
                 delay(searchDebounceMs)
-                val filtered = filterVisibleSessions(allSessions, _uiState.value.hideChildSessions)
+                val visibleSessions = allSessions.filter { it.parentID.isNullOrBlank() }
+                val filtered = visibleSessions
                     .filter { session ->
                         session.title?.contains(query, ignoreCase = true) == true
                     }

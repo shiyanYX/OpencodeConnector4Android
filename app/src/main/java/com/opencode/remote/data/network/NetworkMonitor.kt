@@ -5,6 +5,8 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -30,7 +32,7 @@ class NetworkMonitor @Inject constructor(
         override fun onAvailable(network: Network) {
             Log.d(TAG, "Network available: $network")
             _isConnected.value = true
-            onNetworkAvailable?.invoke()
+            Handler(Looper.getMainLooper()).post { onNetworkAvailable?.invoke() }
         }
 
         override fun onLost(network: Network) {
@@ -44,7 +46,7 @@ class NetworkMonitor @Inject constructor(
             if (hasInternet && !_isConnected.value) {
                 Log.d(TAG, "Network capabilities changed: internet=$hasInternet")
                 _isConnected.value = true
-                onNetworkAvailable?.invoke()
+                Handler(Looper.getMainLooper()).post { onNetworkAvailable?.invoke() }
             }
         }
     }

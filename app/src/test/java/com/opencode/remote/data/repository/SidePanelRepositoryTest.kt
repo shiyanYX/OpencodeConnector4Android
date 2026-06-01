@@ -100,7 +100,7 @@ class SidePanelRepositoryTest {
     // ─── listProviders ──────────────────────────────────────────────────
 
     @Test
-    fun `listProviders caches models on first call and returns empty on second`() = runTest {
+    fun `listProviders always fetches from API (cache-return removed)`() = runTest {
         val providerList = ProviderList(
             providers = listOf(
                 ProviderInfo("openai", "OpenAI", models = mapOf(
@@ -119,16 +119,20 @@ class SidePanelRepositoryTest {
         assertEquals(2, result1.providers.size)
         coVerify(exactly = 1) { apiClient.listProviders() }
 
-        // Second call: cachedModels is set → returns empty ProviderList
+        // Second call: also fetches from API (no more cache-return branch)
+        // cachedModels is now populated, but getCachedModels() still works for legacy compat
         val result2 = repository.listProviders()
-        assertTrue(result2.providers.isEmpty())
-        // apiClient.listProviders still called only once
-        coVerify(exactly = 1) { apiClient.listProviders() }
+        assertEquals(2, result2.providers.size)
+        coVerify(exactly = 2) { apiClient.listProviders() }
 
-        // Third call: also empty (still cached)
+        // Third call: still fetches fresh from API
         val result3 = repository.listProviders()
-        assertTrue(result3.providers.isEmpty())
-        coVerify(exactly = 1) { apiClient.listProviders() }
+        assertEquals(2, result3.providers.size)
+        coVerify(exactly = 3) { apiClient.listProviders() }
+
+        // Verify cachedModels is populated for legacy backward compat
+        val cached = repository.getCachedModels()
+        assertEquals(3, cached.size)
     }
 
     @Test
@@ -140,10 +144,10 @@ class SidePanelRepositoryTest {
         assertTrue(result1.providers.isEmpty())
         coVerify(exactly = 1) { apiClient.listProviders() }
 
-        // Second call should also return empty (cached)
+        // Second call should also return empty (fetches from API again)
         val result2 = repository.listProviders()
         assertTrue(result2.providers.isEmpty())
-        coVerify(exactly = 1) { apiClient.listProviders() }
+        coVerify(exactly = 2) { apiClient.listProviders() }
     }
 
     // ─── getCachedModels ────────────────────────────────────────────────

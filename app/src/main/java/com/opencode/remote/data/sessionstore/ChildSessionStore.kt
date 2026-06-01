@@ -5,6 +5,7 @@ import com.opencode.remote.data.repository.OConnectorRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -28,21 +29,25 @@ class ChildSessionStore @Inject constructor() {
 
     /** Register a child session under a parent (from SSE `session.created`). */
     fun registerChild(parentId: String, childId: String) {
-        _childrenMap.value = _childrenMap.value.toMutableMap().apply {
-            val children = getOrPut(parentId) { emptySet() }
-            put(parentId, children + childId)
+        _childrenMap.update { current ->
+            current.toMutableMap().apply {
+                val children = getOrPut(parentId) { emptySet() }
+                put(parentId, children + childId)
+            }
         }
     }
 
     /** Remove a child session (from SSE `session.deleted`). */
     fun removeChild(parentId: String, childId: String) {
-        _childrenMap.value = _childrenMap.value.toMutableMap().apply {
-            val children = get(parentId) ?: return@apply
-            val updated = children - childId
-            if (updated.isEmpty()) {
-                remove(parentId)
-            } else {
-                put(parentId, updated)
+        _childrenMap.update { current ->
+            current.toMutableMap().apply {
+                val children = get(parentId) ?: return@apply
+                val updated = children - childId
+                if (updated.isEmpty()) {
+                    remove(parentId)
+                } else {
+                    put(parentId, updated)
+                }
             }
         }
     }
@@ -65,11 +70,13 @@ class ChildSessionStore @Inject constructor() {
         try {
             val children = repository.getSessionChildren(parentId)
             val childIds = children.map { it.id }.toSet()
-            _childrenMap.value = _childrenMap.value.toMutableMap().apply {
-                if (childIds.isEmpty()) {
-                    remove(parentId)
-                } else {
-                    put(parentId, childIds)
+            _childrenMap.update { current ->
+                current.toMutableMap().apply {
+                    if (childIds.isEmpty()) {
+                        remove(parentId)
+                    } else {
+                        put(parentId, childIds)
+                    }
                 }
             }
             _loadedParents.add(parentId)

@@ -183,9 +183,15 @@ class OConnectorRepositoryImpl @Inject constructor(
         try {
             if (cache != null && (cache.permission != null || cache.question != null)) {
                 val encoded = json.encodeToString(BlockingStateCache.serializer(), cache)
-                statePrefs.edit().putString("block_$sessionId", encoded).apply()
+                statePrefs.edit()
+                    .putString("block_$sessionId", encoded)
+                    .putLong("block_timestamp_$sessionId", System.currentTimeMillis())
+                    .commit()
             } else {
-                statePrefs.edit().remove("block_$sessionId").apply()
+                statePrefs.edit()
+                    .remove("block_$sessionId")
+                    .remove("block_timestamp_$sessionId")
+                    .commit()
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to persist blocking state for $sessionId", e)
@@ -194,6 +200,12 @@ class OConnectorRepositoryImpl @Inject constructor(
 
     private fun restoreBlockingState(sessionId: String): BlockingStateCache? {
         return try {
+            // Check TTL: if timestamp is missing or older than 5 minutes, treat as stale
+            val timestamp = statePrefs.getLong("block_timestamp_$sessionId", 0L)
+            if (timestamp == 0L || System.currentTimeMillis() - timestamp > 300_000L) {
+                clearBlockingStateDisk(sessionId)
+                return null
+            }
             val encoded = statePrefs.getString("block_$sessionId", null)
             if (encoded != null) json.decodeFromString(BlockingStateCache.serializer(), encoded) else null
         } catch (e: Exception) {
@@ -203,7 +215,10 @@ class OConnectorRepositoryImpl @Inject constructor(
     }
 
     private fun clearBlockingStateDisk(sessionId: String) {
-        statePrefs.edit().remove("block_$sessionId").apply()
+        statePrefs.edit()
+            .remove("block_$sessionId")
+            .remove("block_timestamp_$sessionId")
+            .apply()
     }
 
     private fun persistStreamingState() {
@@ -216,14 +231,16 @@ class OConnectorRepositoryImpl @Inject constructor(
                     .putString("stream_segments", segmentsJson)
                     .putString("stream_agent", _streamingAgent)
                     .putString("stream_pending_msg", _streamingPendingMsgId)
-                    .apply()
+                    .putLong("stream_timestamp", System.currentTimeMillis())
+                    .commit()
             } else {
                 statePrefs.edit()
                     .remove("stream_session")
                     .remove("stream_segments")
                     .remove("stream_agent")
                     .remove("stream_pending_msg")
-                    .apply()
+                    .remove("stream_timestamp")
+                    .commit()
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to persist streaming state", e)
@@ -236,12 +253,19 @@ class OConnectorRepositoryImpl @Inject constructor(
             .remove("stream_segments")
             .remove("stream_agent")
             .remove("stream_pending_msg")
+            .remove("stream_timestamp")
             .apply()
     }
 
     private fun restoreStreamingStateFromDisk(): StreamingState? {
         return try {
             val sessionId = statePrefs.getString("stream_session", null) ?: return null
+            // Check TTL: if timestamp is missing or older than 5 minutes, treat as stale
+            val timestamp = statePrefs.getLong("stream_timestamp", 0L)
+            if (timestamp == 0L || System.currentTimeMillis() - timestamp > 300_000L) {
+                clearStreamingDisk()
+                return null
+            }
             val segmentsJson = statePrefs.getString("stream_segments", null) ?: return null
             val segments = json.decodeFromString(ListSerializer(ResponseSegment.serializer()), segmentsJson)
             val agent = statePrefs.getString("stream_agent", null)
@@ -449,10 +473,6 @@ class OConnectorRepositoryImpl @Inject constructor(
     // ─── Config / Providers ─────────────────────────────────────────────
 
     override suspend fun listProviders(): ProviderList {
-        // Return cache if valid (within 30s TTL)
-        if (cachedModels != null && System.currentTimeMillis() - modelsCacheTime < 30_000) {
-            return ProviderList()
-        }
         val providers = requireClient().listProviders()
         cachedModels = providers.providers.flatMap { it.models.values }.map { p ->
             ModelInfo(id = p.id, name = p.name)

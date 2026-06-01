@@ -1,5 +1,6 @@
 package com.opencode.remote.ui.chat
 
+import androidx.compose.runtime.Immutable
 import com.opencode.remote.data.api.dto.AgentInfo
 
 /**
@@ -37,6 +38,7 @@ data class ChatSelectionConfig(
  * Uses committed/draft separation: draft is edited in the dialog,
  * committed is the active selection.
  */
+@Immutable
 data class ChatSelectionUiState(
     val isDialogOpen: Boolean = false,
     val availableAgents: List<AgentInfo> = emptyList(),

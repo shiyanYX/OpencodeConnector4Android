@@ -79,6 +79,7 @@ data class FileContent(
 
 @Serializable
 data class ProviderList(
+    @SerialName("all")
     val providers: List<ProviderInfo> = emptyList(),
     val default: Map<String, String> = emptyMap(),
     val connected: List<String> = emptyList(),
@@ -100,10 +101,18 @@ data class ModelInfo(
     val status: String? = null,
 )
 
+/** Server returns limit as { context: Int, input?: Int, output: Int }, not a simple integer. */
+@Serializable
+data class ModelLimitInfo(
+    val context: Int = 0,
+    val input: Int? = null,
+    val output: Int = 0,
+)
+
 @Serializable
 data class ProviderModelInfo(
     val id: String = "",
     val name: String? = null,
-    val limit: Int? = null,
+    val limit: ModelLimitInfo? = null,
     val variants: Map<String, JsonElement> = emptyMap(),
 )

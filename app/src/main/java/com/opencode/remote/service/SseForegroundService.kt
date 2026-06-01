@@ -39,11 +39,24 @@ class SseForegroundService : Service() {
             startForeground(NOTIFICATION_ID, notification)
         }
 
-        // Guard against START_STICKY restart with null intent — don't reset generation
+        // Android restarted the service (e.g., after memory kill).
+        // Recover using the repository's current generation — this is
+        // the same generation that was active when we died.
         if (intent == null) {
-            Log.w(TAG, "onStartCommand with null intent (service restart), stopping to avoid stale state")
-            stopSelf()
-            return START_NOT_STICKY
+            val savedGen = repository.currentGeneration
+            Log.w(TAG, "onStartCommand with null intent (service restart), recovering with generation=$savedGen")
+            eventBus.activateGeneration(savedGen)
+            sseJob?.cancel()
+            sseJob = appScope.launch {
+                try {
+                    sseClient.subscribeToEvents().collect { event ->
+                        eventBus.emit(event, savedGen)
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "SSE collection stopped: ${e.message}")
+                }
+            }
+            return START_STICKY
         }
 
         val generation = intent.getLongExtra("generation", 0L)

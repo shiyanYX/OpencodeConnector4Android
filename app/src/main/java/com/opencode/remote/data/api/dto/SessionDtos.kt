@@ -1,5 +1,6 @@
 package com.opencode.remote.data.api.dto
 
+import androidx.compose.runtime.Immutable
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
@@ -8,6 +9,7 @@ import kotlinx.serialization.json.JsonElement
  * 实际 API: GET /session/{id}
  * 字段完全匹配 OpenCode server v1.14.x 响应
  */
+@Immutable
 @Serializable
 data class SessionInfo(
     val id: String = "",
@@ -91,6 +93,7 @@ data class RevertRequest(
  * 实际 API: GET /session/{id}/message 返回的消息
  * 消息有 info + parts 两层结构
  */
+@Immutable
 @Serializable
 data class MessageInfo(
     val info: MessageInfoData = MessageInfoData(),
@@ -172,6 +175,7 @@ data class CacheTokens(
  * type 可以是: "text", "step-start", "step-finish", "reasoning", "tool-call",
  * "file", "agent", "snapshot", "patch", "retry", "compaction", "subtask" 等
  */
+@Immutable
 @Serializable
 data class MessagePart(
     val type: String = "text",

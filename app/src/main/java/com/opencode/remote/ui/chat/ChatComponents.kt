@@ -59,7 +59,6 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.opencode.remote.data.api.dto.MessageInfo
 import com.opencode.remote.data.api.dto.MessagePart
 import com.opencode.remote.data.api.dto.ModelInfo
@@ -344,9 +343,7 @@ internal fun ExpandableSegment(
                             SelectionContainer {
                                 Text(
                                     text = text,
-                                    fontFamily = FontFamily.Monospace,
-                                    fontSize = 12.sp,
-                                    lineHeight = 16.sp,
+                                    style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
                                     color = contentColor,
                                 )
                             }

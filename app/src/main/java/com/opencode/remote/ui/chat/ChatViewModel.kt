@@ -96,6 +96,7 @@ data class ChatDisplayState(
     val selectedModel: ModelInfo? = null,
     val availableModels: List<ModelInfo> = emptyList(),
     val isLoadingModels: Boolean = false,
+    val availableModelsError: Boolean = false,
     // Context state
     val contextUsageK: String = "0K",
     // Selection state (agent/model/variant with committed/draft separation)
@@ -144,6 +145,7 @@ data class ChatUiState(
     val selectedModel get() = chatDisplay.selectedModel
     val availableModels get() = chatDisplay.availableModels
     val isLoadingModels get() = chatDisplay.isLoadingModels
+    val availableModelsError get() = chatDisplay.availableModelsError
     val contextUsageK get() = chatDisplay.contextUsageK
     val pendingPermission get() = chatDisplay.pendingPermission
     val pendingQuestion get() = chatDisplay.pendingQuestion
@@ -446,10 +448,15 @@ class ChatViewModel @Inject constructor(
         sseJob = viewModelScope.launch {
             try {
                 sseEventBus.events.collect { envelope ->
-                    // Discard events from older connections
+                    // Accept events from the service's generation — it may differ from
+                    // repository.currentGeneration if the gen was incremented (e.g., network
+                    // recovery callback) after the service was started.
                     if (envelope.generation < subscribedGeneration) {
-                        Log.d(TAG, "Discarding stale event gen=${envelope.generation} (subscribed=$subscribedGeneration)")
-                        return@collect
+                        // If the service is using a LOWER generation than what we subscribed with,
+                        // it means the gen was incremented after service start. Adopt the service's
+                        // gen — this is the authoritative source for live events.
+                        Log.w(TAG, "SSE DIAG: gen mismatch gen=${envelope.generation} < subscribed=$subscribedGeneration, adopting service gen")
+                        subscribedGeneration = envelope.generation
                     }
                     // Follow upward — update to newer generation
                     if (envelope.generation > subscribedGeneration) {
@@ -471,6 +478,9 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    // DIAGNOSTIC: Track event types
+    private val eventCounts = mutableMapOf<String, Int>()
+
     private fun handleEvent(event: ServerEvent) {
         val props = event.payload.properties
         val currentSessionId = _uiState.value.sessionId
@@ -478,12 +488,26 @@ class ChatViewModel @Inject constructor(
         // Filter: only process events for current session (or global events without sessionID)
         if (props.sessionID != null && props.sessionID != currentSessionId) return
 
+        // DIAGNOSTIC: Count event types
+        val type = event.payload.type
+        eventCounts[type] = (eventCounts[type] ?: 0) + 1
+        // Log every 10 events of any type
+        if ((eventCounts.values.sum()) % 10 == 0) {
+            Log.w(TAG, "SSE DIAG: total=${eventCounts.values.sum()} counts=${eventCounts.entries.sortedByDescending { it.value }.take(6).joinToString { "${it.key}=${it.value}" }}")
+        }
+
         Log.d(TAG, "SSE event: ${event.payload.type} session=${props.sessionID?.take(8)} msg=${props.messageID?.take(8)}")
         lastSseEventTime = System.currentTimeMillis()
 
         when (event.payload.type) {
             // ── Streaming text delta (incremental) ──
             "message.part.delta" -> {
+                val chunk = props.delta
+                if (chunk != null) {
+                    Log.w(TAG, "SSE DIAG: delta field=${props.field} partID=${props.partID?.take(8)} chunkLen=${chunk.length} chunk='${chunk.take(30).replace("\n","\\n")}'")
+                } else {
+                    Log.w(TAG, "SSE DIAG: delta with NULL chunk! field=${props.field} partID=${props.partID}")
+                }
                 // Accumulate delta events for batch processing (16ms coalescing window)
                 synchronized(pendingDeltas) {
                     pendingDeltas.add(event)
@@ -544,7 +568,13 @@ class ChatViewModel @Inject constructor(
 
             // ── Message created/updated ──
             "message.updated" -> {
-                val info = props.info ?: return
+                val info = props.info
+                if (info != null) {
+                    Log.w(TAG, "SSE DIAG: message.updated role=${info.role} id=${info.id?.take(8)} agent=${info.agent}")
+                } else {
+                    Log.w(TAG, "SSE DIAG: message.updated with NULL info!")
+                }
+                if (info == null) return
                 if (info.role == "assistant") {
                     val currentPending = _uiState.value.pendingAssistantMessageId
                     if (currentPending == info.id) return
@@ -602,6 +632,7 @@ class ChatViewModel @Inject constructor(
 
             // ── Session idle = PRIMARY completion signal ──
             "session.idle" -> {
+                Log.w(TAG, "SSE DIAG: session.idle RECEIVED isStreaming=${_uiState.value.isStreaming} isSending=${_uiState.value.isSending}")
                 val state = _uiState.value
                 // Only finalize if we're streaming AND the AI has actually started responding
                 // (pendingAssistantMessageId set by message.updated). Prevents premature clearing
@@ -634,13 +665,29 @@ class ChatViewModel @Inject constructor(
                                     p.type in listOf("text", "reasoning") && !p.text.isNullOrBlank()
                                 }
                                 if (!hasContent) {
-                                    Log.w(TAG, "session.idle: assistant message still has no content after retries, keeping streaming visible")
-                                    // Update messages but do NOT clear streaming — fallback polling
-                                    // or next idle event will handle it.
+                                    // Assistant message not found or has no text/reasoning content after retries.
+                                    // Force-clear streaming state — keeping it visible with no SSE activity
+                                    // would show a perpetual spinner in the UI.
+                                    Log.w(TAG, "session.idle: assistant msg not found or no content after retries, force-clearing streaming")
+                                    deltaLogCounter = 0
+                                    partTypeMap.clear()
+                                    batchFlushJob?.cancel()
+                                    streamingWatchdogJob?.cancel()
+                                    synchronized(pendingDeltas) { pendingDeltas.clear() }
+                                    repository.clearStreaming()
                                     _uiState.update {
-                                        it.copy(chatDisplay = it.chatDisplay.copy(
-                                            messages = freshMessages.applyMessageFilters(it.sessionMeta.revertMessageId),
-                                        ))
+                                        it.copy(
+                                            chatDisplay = it.chatDisplay.copy(
+                                                messages = freshMessages.applyMessageFilters(it.sessionMeta.revertMessageId),
+                                            ),
+                                            streaming = it.streaming.copy(
+                                                isStreaming = false,
+                                                streamingSegments = emptyList(),
+                                                streamingAgent = null,
+                                                isSending = false,
+                                                pendingAssistantMessageId = null,
+                                            ),
+                                        )
                                     }
                                     return@launch
                                 }
@@ -662,6 +709,7 @@ class ChatViewModel @Inject constructor(
                                         streamingSegments = emptyList(),
                                         streamingAgent = null,
                                         isSending = false,
+                                        pendingAssistantMessageId = null,
                                     ),
                                 )
                             }
@@ -680,6 +728,7 @@ class ChatViewModel @Inject constructor(
                                     streamingSegments = emptyList(),
                                     streamingAgent = null,
                                     isSending = false,
+                                    pendingAssistantMessageId = null,
                                 ))
                             }
                         }
@@ -1281,6 +1330,7 @@ class ChatViewModel @Inject constructor(
                     it.copy(chatDisplay = it.chatDisplay.copy(
                         selection = normalized,
                         availableModels = legacyModels,
+                        availableModelsError = false,
                         isLoadingModels = false,
                     ))
                 }
@@ -1288,7 +1338,10 @@ class ChatViewModel @Inject constructor(
                 restoreSelection()
             } catch (e: Exception) {
                 Log.w(TAG, "Failed to load providers", e)
-                _uiState.update { it.copy(chatDisplay = it.chatDisplay.copy(isLoadingModels = false)) }
+                _uiState.update { it.copy(chatDisplay = it.chatDisplay.copy(
+                    isLoadingModels = false,
+                    availableModelsError = true,
+                )) }
             }
         }
     }

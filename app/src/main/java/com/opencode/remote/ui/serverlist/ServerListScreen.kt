@@ -3,13 +3,16 @@ package com.opencode.remote.ui.serverlist
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.Cloud
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -28,7 +31,7 @@ import com.opencode.remote.ui.update.UpdateDialog
 import com.opencode.remote.ui.update.UpdateUiState
 import com.opencode.remote.ui.update.UpdateViewModel
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun ServerListScreen(
     viewModel: ServerListViewModel = hiltViewModel(),
@@ -97,8 +100,10 @@ fun ServerListScreen(
                     items(uiState.servers, key = { it.id }) { server ->
                         ServerCard(
                             server = server,
+                            isConnected = server.id == uiState.connectedServerId,
                             onClick = { onServerSelected(server.id) },
                             onDelete = { viewModel.deleteServer(server.id) },
+                            modifier = Modifier.animateItemPlacement(tween(300)),
                         )
                     }
                 }
@@ -211,21 +216,23 @@ private fun EmptyServerList(modifier: Modifier = Modifier) {
 @Composable
 private fun ServerCard(
     server: ServerInfo,
+    isConnected: Boolean,
     onClick: () -> Unit,
     onDelete: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     var showDeleteMenu by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
     val s = AppLocale.strings
 
     Card(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .combinedClickable(
                 onClick = onClick,
                 onLongClick = { showDeleteMenu = true },
             ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
     ) {
         Row(
             modifier = Modifier
@@ -233,20 +240,47 @@ private fun ServerCard(
                 .padding(16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            Icon(
+                imageVector = if (isConnected) Icons.Filled.Dns else Icons.Outlined.Cloud,
+                contentDescription = null,
+                modifier = Modifier.size(36.dp),
+                tint = if (isConnected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+            )
+
+            Spacer(modifier = Modifier.width(12.dp))
+
             Column(modifier = Modifier.weight(1f)) {
-                val displayName = server.name.ifBlank { "${server.host}:${server.port}" }
-                Text(
-                    text = displayName,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Medium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = server.name.ifBlank { "${server.host}:${server.port}" },
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    if (server.name.isNotBlank()) {
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Surface(
+                            shape = RoundedCornerShape(4.dp),
+                            color = if (isConnected) MaterialTheme.colorScheme.primaryContainer
+                            else MaterialTheme.colorScheme.surfaceVariant,
+                        ) {
+                            Text(
+                                text = if (isConnected) s.serverConnected else s.disconnect,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (isConnected) MaterialTheme.colorScheme.onPrimaryContainer
+                                else MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
                 if (server.name.isNotBlank()) {
-                    Spacer(modifier = Modifier.height(4.dp))
+                    Spacer(modifier = Modifier.height(2.dp))
                     Text(
                         text = "${server.host}:${server.port}",
-                        style = MaterialTheme.typography.bodySmall,
+                        style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }

@@ -26,7 +26,6 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 
 // ─── Markdown Data Model ──────────────────────────────────────────────────
 
@@ -142,9 +141,7 @@ internal fun MarkdownText(
                                 SelectionContainer {
                                     Text(
                                         text = segment.code,
-                                        fontFamily = FontFamily.Monospace,
-                                        fontSize = 13.sp,
-                                        lineHeight = 18.sp,
+                                        style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
                                         color = color,
                                     )
                                 }
@@ -167,7 +164,7 @@ internal fun MarkdownText(
                                     SpanStyle(
                                         fontFamily = FontFamily.Monospace,
                                         background = codeBackground,
-                                        fontSize = 13.sp,
+                                        fontSize = MaterialTheme.typography.bodySmall.fontSize,
                                     )
                                 ) {
                                     append(" ${span.text} ")

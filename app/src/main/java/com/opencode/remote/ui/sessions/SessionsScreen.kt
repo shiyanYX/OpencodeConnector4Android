@@ -26,8 +26,9 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -36,6 +37,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.opencode.remote.data.api.dto.SessionInfo
 import com.opencode.remote.data.api.dto.SessionSummary
 import com.opencode.remote.data.sessionstore.SessionStatus
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.opencode.remote.ui.components.ErrorSnackbar
 import com.opencode.remote.ui.strings.AppLocale
 import com.opencode.remote.ui.util.TimeFormatter
@@ -60,7 +62,7 @@ fun SessionsScreen(
     onDisconnected: () -> Unit,
     viewModel: SessionsViewModel = hiltViewModel(),
 ) {
-    val uiState by viewModel.uiState.collectAsState()
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val s = AppLocale.strings
 
     // Auto-refresh when navigating back to this screen
@@ -93,12 +95,6 @@ fun SessionsScreen(
                         Icon(
                             imageVector = if (uiState.listDensity == ListDensity.COMPACT) Icons.Default.ViewAgenda else Icons.Default.ViewHeadline,
                             contentDescription = if (uiState.listDensity == ListDensity.COMPACT) s.densityDefault else s.densityCompact,
-                        )
-                    }
-                    IconButton(onClick = { viewModel.toggleHideChildSessions() }) {
-                        Icon(
-                            imageVector = if (uiState.hideChildSessions) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                            contentDescription = if (uiState.hideChildSessions) s.showChildSessions else s.hideChildSessions,
                         )
                     }
                     IconButton(onClick = { viewModel.toggleDarkMode() }) {
@@ -150,7 +146,7 @@ fun SessionsScreen(
                 }
 
                 else -> {
-                    val statusMap by viewModel.sessionStatusMap.collectAsState()
+                    val statusMap by viewModel.sessionStatusMap.collectAsStateWithLifecycle()
 
                     val grouped = remember(uiState.sessions) {
                         uiState.sessions
@@ -213,6 +209,7 @@ fun SessionsScreen(
                                     sessionCount = sessions.size,
                                     hasBusySessions = directory in busyDirectories,
                                     onClick = { onProjectClick(directory) },
+                                    modifier = Modifier.animateItemPlacement(tween(300)),
                                 )
                             }
                         }
@@ -234,12 +231,13 @@ private fun ProjectCard(
     sessionCount: Int,
     hasBusySessions: Boolean = false,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val s = AppLocale.strings
     val folderName = directory.replace('\\', '/').substringAfterLast('/')
 
     Card(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
@@ -276,7 +274,7 @@ private fun ProjectCard(
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
                     text = directory,
-                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                    style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontFamily = FontFamily.Monospace,
                     maxLines = 1,
@@ -309,7 +307,7 @@ fun ProjectSessionsScreen(
     onBack: () -> Unit,
     viewModel: SessionsViewModel,  // Shared with SessionsScreen — passed from AppNavigation
 ) {
-    val uiState by viewModel.uiState.collectAsState()
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val s = AppLocale.strings
     val folderName = directory.replace('\\', '/').substringAfterLast('/')
     val density = LocalDensity.current
@@ -402,12 +400,6 @@ fun ProjectSessionsScreen(
                                     contentDescription = if (uiState.listDensity == ListDensity.COMPACT) s.densityDefault else s.densityCompact,
                                 )
                             }
-                            IconButton(onClick = { viewModel.toggleHideChildSessions() }) {
-                                Icon(
-                                    imageVector = if (uiState.hideChildSessions) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                                    contentDescription = if (uiState.hideChildSessions) s.showChildSessions else s.hideChildSessions,
-                                )
-                            }
                             IconButton(onClick = { viewModel.loadSessions() }) {
                                 Icon(Icons.Default.Refresh, contentDescription = s.refresh)
                             }
@@ -463,8 +455,8 @@ fun ProjectSessionsScreen(
 
                         else -> {
                             val isSearching = uiState.searchQuery.isNotBlank()
-                            val statusMap by viewModel.sessionStatusMap.collectAsState()
-                            val childrenMap by viewModel.childrenMap.collectAsState()
+                            val statusMap by viewModel.sessionStatusMap.collectAsStateWithLifecycle()
+                            val childrenMap by viewModel.childrenMap.collectAsStateWithLifecycle()
                             val allProjectSessionsMap = remember(uiState.sessions) {
                                 viewModel.allSessionsForProject(directory).associateBy { it.id }
                             }
@@ -539,6 +531,7 @@ fun ProjectSessionsScreen(
                                                     onClick = { onSessionClick(session.id) },
                                                     onDelete = { viewModel.deleteSession(session.id, directory) },
                                                     onFork = { viewModel.forkSession(session.id, directory) },
+                                                    modifier = Modifier.animateItemPlacement(tween(300)),
                                                 )
                                             }
                                         } else {
@@ -562,7 +555,11 @@ fun ProjectSessionsScreen(
                                                     items = sessions,
                                                     key = { it.id }
                                                 ) { session ->
-                                                    val hasChildren = childrenMap[session.id]?.isNotEmpty() == true
+                                                    val hasChildren = when {
+                                                        session.parentID != null -> false
+                                                        !viewModel.shouldRefreshChildren(session.id) -> childrenMap[session.id]?.isNotEmpty() == true
+                                                        else -> true
+                                                    }
                                                     val isExpanded = session.id in uiState.expandedParents
 
                                                     SessionCard(
@@ -581,6 +578,7 @@ fun ProjectSessionsScreen(
                                                                 viewModel.refreshChildSessions(session.id)
                                                             }
                                                         },
+                                                        modifier = Modifier.animateItemPlacement(tween(300)),
                                                     )
 
                                                     // Show child sessions when expanded
@@ -650,22 +648,23 @@ private fun SessionCard(
     hasChildren: Boolean = false,
     isExpanded: Boolean = false,
     onToggleExpand: (() -> Unit)? = null,
+    modifier: Modifier = Modifier,
 ) {
     val isCompact = density == ListDensity.COMPACT
     val cardPadding = if (isCompact) 8.dp else 16.dp
     val spacerWidth = if (isCompact) 8.dp else 16.dp
     val titleStyle = if (isCompact) {
-        MaterialTheme.typography.titleSmall.copy(fontSize = 12.sp)
+        MaterialTheme.typography.labelMedium
     } else {
         MaterialTheme.typography.titleSmall
     }
     val bodyStyle = if (isCompact) {
-        MaterialTheme.typography.bodySmall.copy(fontSize = 10.sp)
+        MaterialTheme.typography.labelSmall
     } else {
         MaterialTheme.typography.bodySmall
     }
     val labelStyle = if (isCompact) {
-        MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp)
+        MaterialTheme.typography.labelSmall
     } else {
         MaterialTheme.typography.labelSmall
     }
@@ -675,7 +674,7 @@ private fun SessionCard(
     val s = AppLocale.strings
 
     Card(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .then(if (isChild) Modifier.padding(start = 24.dp) else Modifier)
             .clickable(onClick = onClick),
@@ -817,9 +816,16 @@ private fun StatusDot(status: SessionStatus?) {
         null -> StatusGray
     }
 
+    val statusLabel = when (status) {
+        SessionStatus.BUSY -> "busy"
+        SessionStatus.IDLE -> "idle"
+        null -> "unknown"
+    }
+
     Box(
         modifier = Modifier
             .size(12.dp)
+            .semantics { contentDescription = "Session status: $statusLabel" }
             .background(
                 color = dotColor,
                 shape = CircleShape,

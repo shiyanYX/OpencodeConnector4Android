@@ -21,6 +21,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.opencode.remote.ui.strings.AppLocale
 
 enum class ConnectionMode { ADD_SERVER }
@@ -33,7 +34,7 @@ fun ConnectionScreen(
     mode: ConnectionMode? = null,
     onBack: (() -> Unit)? = null,
 ) {
-    val uiState by viewModel.uiState.collectAsState()
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val s = AppLocale.strings
     var passwordVisible by remember { mutableStateOf(false) }
 

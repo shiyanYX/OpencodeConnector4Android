@@ -82,17 +82,19 @@ class OConnectorSseClient @Inject constructor(
      * Called by the repository when a new connection is established.
      */
     fun configure(baseUrl: String, username: String = "", password: String = "", autoReconnect: Boolean = true, insecureTrust: Boolean = false) {
-        close()
-        this.baseUrl = baseUrl
-        this.autoReconnect = autoReconnect
-        this.insecureTrust = insecureTrust
-        this.authHeader = if (password.isNotEmpty()) {
-            "Basic " + Base64.encodeToString(
-                "${username.ifEmpty { "opencode" }}:$password".toByteArray(),
-                Base64.NO_WRAP
-            )
-        } else null
-        sseClient = createSseClient(insecureTrust)
+        synchronized(this) {
+            close()
+            this.baseUrl = baseUrl
+            this.autoReconnect = autoReconnect
+            this.insecureTrust = insecureTrust
+            this.authHeader = if (password.isNotEmpty()) {
+                "Basic " + Base64.encodeToString(
+                    "${username.ifEmpty { "opencode" }}:$password".toByteArray(),
+                    Base64.NO_WRAP
+                )
+            } else null
+            sseClient = createSseClient(insecureTrust)
+        }
     }
 
     /**
@@ -127,7 +129,8 @@ class OConnectorSseClient @Inject constructor(
 
             try {
                 val sseUrl = "$baseUrl/global/event"
-                sseClient.prepareGet(sseUrl) {
+                val client = synchronized(this) { sseClient }
+                client.prepareGet(sseUrl) {
                     headers {
                         append(HttpHeaders.Accept, "text/event-stream")
                         append(HttpHeaders.CacheControl, "no-cache")
@@ -189,8 +192,10 @@ class OConnectorSseClient @Inject constructor(
             }
 
             // Close old client and create new one to prevent resource leak
-            try { sseClient.close() } catch (_: Exception) {}
-            sseClient = createSseClient(insecureTrust)
+            synchronized(this) {
+                try { sseClient.close() } catch (_: Exception) {}
+                sseClient = createSseClient(insecureTrust)
+            }
 
             val delayMs = minOf(INITIAL_DELAY_MS * (1L shl (retryCount - 1)), MAX_DELAY_MS)
             Log.w(TAG, "SSE reconnecting in ${delayMs}ms (attempt $retryCount/$MAX_RETRIES)")
@@ -201,6 +206,8 @@ class OConnectorSseClient @Inject constructor(
     }
 
     fun close() {
-        try { sseClient.close() } catch (_: Exception) {}
+        synchronized(this) {
+            try { sseClient.close() } catch (_: Exception) {}
+        }
     }
 }

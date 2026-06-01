@@ -5,6 +5,7 @@ import com.opencode.remote.data.repository.OConnectorRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -24,7 +25,7 @@ class ActiveSessionStore @Inject constructor() {
     val statusMap: StateFlow<Map<String, SessionStatus>> = _statusMap.asStateFlow()
 
     fun updateStatus(sessionId: String, status: SessionStatus) {
-        _statusMap.value = _statusMap.value + (sessionId to status)
+        _statusMap.update { it + (sessionId to status) }
     }
 
     fun updateFromStatusEndpoint(map: Map<String, String>) {
