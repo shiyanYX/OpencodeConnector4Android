@@ -211,6 +211,8 @@ data class AppStrings(
     // Server management
     val servers: String,
     val addServer: String,
+    val editServer: String,
+    val save: String,
     val noServers: String,
     val addFirstServer: String,
     val serverName: String,
@@ -459,6 +461,8 @@ val enStrings = AppStrings(
     // Server management
     servers = "Servers",
     addServer = "Add Server",
+    editServer = "Edit",
+    save = "Save",
     noServers = "No servers yet",
     addFirstServer = "Tap + to add your first OpenCode server",
     serverName = "Server Name",
@@ -707,6 +711,8 @@ val zhStrings = AppStrings(
     // Server management
     servers = "服务器",
     addServer = "添加服务器",
+    editServer = "编辑",
+    save = "保存",
     noServers = "暂无服务器",
     addFirstServer = "点击 + 添加第一台 OpenCode 服务器",
     serverName = "服务器名称",

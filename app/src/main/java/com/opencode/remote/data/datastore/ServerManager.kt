@@ -112,7 +112,12 @@ class ServerManager(
         }
     }
 
-    suspend fun addServer(info: ServerInfo, password: String) {
+    /**
+     * Add or update a server. When a server with the same id (or same host+port+username)
+     * already exists, its entry is updated in place keeping the original id.
+     * A blank/null [password] keeps the existing stored password (used when editing).
+     */
+    suspend fun addServer(info: ServerInfo, password: String?) {
         val current = servers.first().toMutableList()
         // Deduplicate by host+port+username to prevent duplicates
         val existingIndex = current.indexOfFirst {
@@ -126,7 +131,9 @@ class ServerManager(
             current.add(info)
         }
         saveServers(current)
-        setPassword(info.id, password)
+        if (!password.isNullOrEmpty()) {
+            setPassword(info.id, password)
+        }
     }
 
     suspend fun deleteServer(id: String) {

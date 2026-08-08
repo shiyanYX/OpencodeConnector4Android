@@ -37,6 +37,7 @@ fun ServerListScreen(
     viewModel: ServerListViewModel = hiltViewModel(),
     onAddServer: () -> Unit,
     onServerSelected: (serverId: String) -> Unit,
+    onEditServer: (serverId: String) -> Unit,
     onHelp: () -> Unit,
     onToggleLanguage: () -> Unit,
 ) {
@@ -102,6 +103,7 @@ fun ServerListScreen(
                             server = server,
                             isConnected = server.id == uiState.connectedServerId,
                             onClick = { onServerSelected(server.id) },
+                            onEdit = { onEditServer(server.id) },
                             onDelete = { viewModel.deleteServer(server.id) },
                             modifier = Modifier.animateItemPlacement(tween(300)),
                         )
@@ -218,6 +220,7 @@ private fun ServerCard(
     server: ServerInfo,
     isConnected: Boolean,
     onClick: () -> Unit,
+    onEdit: () -> Unit,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -299,6 +302,19 @@ private fun ServerCard(
             expanded = showDeleteMenu,
             onDismissRequest = { showDeleteMenu = false },
         ) {
+            DropdownMenuItem(
+                text = { Text(s.editServer) },
+                leadingIcon = {
+                    Icon(
+                        Icons.Default.Edit,
+                        contentDescription = null,
+                    )
+                },
+                onClick = {
+                    showDeleteMenu = false
+                    onEdit()
+                },
+            )
             DropdownMenuItem(
                 text = { Text(s.deleteServer, color = MaterialTheme.colorScheme.error) },
                 leadingIcon = {

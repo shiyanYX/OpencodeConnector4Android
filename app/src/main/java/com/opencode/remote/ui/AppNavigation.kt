@@ -34,6 +34,7 @@ object Routes {
     const val SERVER_LIST = "serverList"
     const val ADD_SERVER = "addServer"
     const val CONNECTION = "connection"
+    const val EDIT_SERVER = "editServer/{serverId}"
     const val SESSIONS = "sessions"
     const val PROJECT_SESSIONS = "project/{directory}"
     const val CHAT = "chat/{sessionId}?directory={directory}"
@@ -44,6 +45,7 @@ object Routes {
         return "chat/$sessionId?directory=$encodedDir"
     }
     fun projectSessions(directory: String) = "project/${java.net.URLEncoder.encode(directory, "UTF-8")}"
+    fun editServer(serverId: String) = "editServer/$serverId"
 }
 
 @Composable
@@ -117,6 +119,7 @@ fun OConnectorApp(
                 viewModel = viewModel,
                 onAddServer = { navController.navigate(Routes.ADD_SERVER) },
                 onServerSelected = { serverId -> viewModel.connectToServer(serverId) },
+                onEditServer = { serverId -> navController.navigate(Routes.editServer(serverId)) },
                 onHelp = { navController.navigate(Routes.HELP) },
                 onToggleLanguage = {
                     val newLang = if (AppLocale.language == "en") "zh" else "en"
@@ -134,6 +137,17 @@ fun OConnectorApp(
                         popUpTo(Routes.SERVER_LIST) { inclusive = true }
                     }
                 },
+                onBack = { navController.popBackStack() },
+            )
+        }
+
+        // === Edit Server ===
+        composable(Routes.EDIT_SERVER) { backStackEntry ->
+            val serverId = backStackEntry.arguments?.getString("serverId") ?: return@composable
+            ConnectionScreen(
+                mode = ConnectionMode.EDIT_SERVER,
+                serverId = serverId,
+                onSaved = { navController.popBackStack() },
                 onBack = { navController.popBackStack() },
             )
         }
@@ -169,10 +183,13 @@ fun OConnectorApp(
             val directory = java.net.URLDecoder.decode(encoded, "UTF-8")
             // Share the same SessionsViewModel with SessionsScreen so session count updates are visible immediately
             // Use try-catch to handle deep link scenarios where SESSIONS route is not in the back stack
-            val sessionsEntry = try {
-                navController.getBackStackEntry(Routes.SESSIONS)
-            } catch (_: IllegalArgumentException) {
-                backStackEntry
+            // remember() — getBackStackEntry during composition must be keyed, or recomposition may re-resolve
+            val sessionsEntry = remember(backStackEntry) {
+                try {
+                    navController.getBackStackEntry(Routes.SESSIONS)
+                } catch (_: IllegalArgumentException) {
+                    backStackEntry
+                }
             }
             ProjectSessionsScreen(
                 directory = directory,

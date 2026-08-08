@@ -1,6 +1,7 @@
 package com.opencode.remote.ui.connection
 
 import android.util.Log
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.opencode.remote.data.api.dto.ServerInfo
@@ -26,6 +27,7 @@ data class ConnectionUiState(
     val serverName: String = "",
     val isConnecting: Boolean = false,
     val isConnected: Boolean = false,
+    val isSaved: Boolean = false,
     val error: String? = null,
 )
 
@@ -34,32 +36,67 @@ class ConnectionViewModel @Inject constructor(
     private val repository: OConnectorRepository,
     private val preferences: ConnectionPreferences,
     private val serverManager: ServerManager,
+    private val savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ConnectionUiState())
     val uiState: StateFlow<ConnectionUiState> = _uiState.asStateFlow()
+
+    /** Server id when the screen is in edit mode (from nav route args), null otherwise. */
+    private val editingServerId: String? = savedStateHandle.get<String>("serverId")
 
     companion object {
         private const val TAG = "ConnectionViewModel"
     }
 
     init {
-        viewModelScope.launch {
-            // 只读取一次保存的配置，避免后续 saveConfig 写入时覆盖用户正在编辑的输入
-            preferences.connectionConfig
-                .take(1)
-                .collect { config ->
-                    _uiState.update {
-                        it.copy(
-                            host = config.host,
-                            port = config.port.toString(),
-                            username = config.username,
-                            password = config.password,
-                            useTls = config.useTls,
-                            insecureTrust = config.insecureTrust,
-                        )
+        val serverId = editingServerId
+        if (serverId != null) {
+            // Edit mode: preload the saved server config instead of the legacy single config
+            viewModelScope.launch {
+                loadServerForEdit(serverId)
+            }
+        } else {
+            viewModelScope.launch {
+                // 只读取一次保存的配置，避免后续 saveConfig 写入时覆盖用户正在编辑的输入
+                preferences.connectionConfig
+                    .take(1)
+                    .collect { config ->
+                        _uiState.update {
+                            it.copy(
+                                host = config.host,
+                                port = config.port.toString(),
+                                username = config.username,
+                                password = config.password,
+                                useTls = config.useTls,
+                                insecureTrust = config.insecureTrust,
+                            )
+                        }
                     }
-                }
+            }
+        }
+    }
+
+    private suspend fun loadServerForEdit(serverId: String) {
+        try {
+            val server = serverManager.servers.first().find { it.id == serverId } ?: return
+            // Read password on IO thread — EncryptedSharedPreferences init involves Keystore I/O
+            val password = withContext(Dispatchers.IO) {
+                serverManager.getPassword(serverId).orEmpty()
+            }
+            _uiState.update {
+                it.copy(
+                    host = server.host,
+                    port = server.port.toString(),
+                    username = server.username,
+                    password = password,
+                    useTls = server.useTls,
+                    insecureTrust = server.insecureTrust,
+                    serverName = server.name,
+                )
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to load server for edit: $serverId", e)
         }
     }
 
@@ -172,6 +209,56 @@ class ConnectionViewModel @Inject constructor(
 
     fun clearError() {
         _uiState.update { it.copy(error = null) }
+    }
+
+    /**
+     * Edit mode: save the server config without connecting.
+     * A blank password field keeps the previously stored password.
+     * If the edited server is currently connected, the stale connection is dropped
+     * so the list shows the server as disconnected until the user reconnects.
+     */
+    fun saveServer() {
+        val state = _uiState.value
+        val serverId = editingServerId
+        if (serverId == null) return
+        val host = state.host.trim()
+        val port = state.port.trim().toIntOrNull()
+        val s = com.opencode.remote.ui.strings.AppLocale.strings
+
+        if (host.isEmpty()) {
+            _uiState.update { it.copy(error = s.errEnterIp) }
+            return
+        }
+        if (port == null || port !in 1..65535) {
+            _uiState.update { it.copy(error = s.errInvalidPort) }
+            return
+        }
+
+        viewModelScope.launch {
+            try {
+                val serverInfo = ServerInfo(
+                    id = serverId,
+                    name = state.serverName.trim(),
+                    host = host,
+                    port = port,
+                    username = state.username.trim(),
+                    useTls = state.useTls,
+                    insecureTrust = state.insecureTrust,
+                )
+                // addServer updates in place keeping the original id; blank password preserves the old one
+                serverManager.addServer(serverInfo, state.password.ifBlank { null })
+
+                if (repository.getActiveServerId() == serverId) {
+                    repository.disconnect()
+                }
+                _uiState.update { it.copy(isSaved = true) }
+            } catch (e: Exception) {
+                Log.e(TAG, "Save server failed", e)
+                _uiState.update {
+                    it.copy(error = s.errConnectionFailed.replace("%s", e.localizedMessage ?: e.javaClass.simpleName))
+                }
+            }
+        }
     }
 
     fun saveAndConnect() {

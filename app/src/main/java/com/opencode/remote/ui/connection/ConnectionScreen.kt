@@ -24,14 +24,16 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.opencode.remote.ui.strings.AppLocale
 
-enum class ConnectionMode { ADD_SERVER }
+enum class ConnectionMode { ADD_SERVER, EDIT_SERVER }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ConnectionScreen(
-    onConnected: () -> Unit,
+    onConnected: (() -> Unit)? = null,
     viewModel: ConnectionViewModel = hiltViewModel(),
     mode: ConnectionMode? = null,
+    serverId: String? = null,
+    onSaved: (() -> Unit)? = null,
     onBack: (() -> Unit)? = null,
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -47,16 +49,31 @@ fun ConnectionScreen(
     // Navigate when connected
     LaunchedEffect(uiState.isConnected) {
         if (uiState.isConnected) {
-            onConnected()
+            onConnected?.invoke()
+        }
+    }
+
+    // Navigate back when the edit was saved
+    LaunchedEffect(uiState.isSaved) {
+        if (uiState.isSaved) {
+            onSaved?.invoke()
         }
     }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(if (mode == ConnectionMode.ADD_SERVER) s.addServerTitle else s.appTitle) },
+                title = {
+                    Text(
+                        when (mode) {
+                            ConnectionMode.ADD_SERVER -> s.addServerTitle
+                            ConnectionMode.EDIT_SERVER -> s.editServerTitle
+                            null -> s.appTitle
+                        }
+                    )
+                },
                 navigationIcon = {
-                    if (mode == ConnectionMode.ADD_SERVER && onBack != null) {
+                    if (mode != null && onBack != null) {
                         IconButton(onClick = { onBack() }) {
                             Icon(
                                 imageVector = Icons.AutoMirrored.Filled.ArrowBack,
@@ -113,7 +130,7 @@ fun ConnectionScreen(
 
                 Spacer(modifier = Modifier.height(32.dp))
 
-                if (mode == ConnectionMode.ADD_SERVER) {
+                if (mode != null) {
                     OutlinedTextField(
                         value = uiState.serverName,
                         onValueChange = viewModel::onServerNameChange,
@@ -241,8 +258,11 @@ fun ConnectionScreen(
             // Fixed bottom button
             Button(
                 onClick = {
-                    if (mode == ConnectionMode.ADD_SERVER) viewModel.saveAndConnect()
-                    else viewModel.connect()
+                    when (mode) {
+                        ConnectionMode.ADD_SERVER -> viewModel.saveAndConnect()
+                        ConnectionMode.EDIT_SERVER -> viewModel.saveServer()
+                        null -> viewModel.connect()
+                    }
                 },
                 modifier = Modifier
                     .fillMaxWidth()
@@ -265,7 +285,11 @@ fun ConnectionScreen(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = if (mode == ConnectionMode.ADD_SERVER) s.saveAndConnect else s.connectButton,
+                        text = when (mode) {
+                            ConnectionMode.ADD_SERVER -> s.saveAndConnect
+                            ConnectionMode.EDIT_SERVER -> s.save
+                            null -> s.connectButton
+                        },
                         style = MaterialTheme.typography.titleMedium,
                     )
                 }
