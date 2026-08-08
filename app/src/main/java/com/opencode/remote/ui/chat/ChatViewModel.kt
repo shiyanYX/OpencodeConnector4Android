@@ -5,6 +5,7 @@ import android.content.Context
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.opencode.remote.BuildConfig
 import com.opencode.remote.OConnectorApp
 import com.opencode.remote.R
 import com.opencode.remote.data.api.dto.*
@@ -170,6 +171,10 @@ class ChatViewModel @Inject constructor(
     private var streamingWatchdogJob: Job? = null
     private var blockingWatchdogJob: Job? = null
     private var lastSseEventTime = 0L  // Timestamp of last SSE event — used for fallback polling
+    /** Fallback polling only runs while the chat screen is RESUMED. */
+    @Volatile
+    private var pollingActive = false
+    private var messageReloadJob: Job? = null
 
     /**
      * IDs of messages that already completed — guards against late [message.updated] re-triggering streaming.
@@ -195,6 +200,7 @@ class ChatViewModel @Inject constructor(
         private const val TAG = "ChatViewModel"
         private const val MAX_STREAMING_TEXT = 10_000
         private const val TODO_COMPLETED_NOTIFICATION_ID = 2001
+        private const val MESSAGE_RELOAD_DEBOUNCE_MS = 300L
     }
 
     /**
@@ -211,6 +217,7 @@ class ChatViewModel @Inject constructor(
     fun initialize(sessionId: String, directory: String? = null) {
         pollingJob?.cancel()
         blockingWatchdogJob?.cancel()
+        messageReloadJob?.cancel()  // discard any pending debounced reload from the previous session
         lastSseEventTime = System.currentTimeMillis()
         _uiState.update {
             it.copy(
@@ -455,7 +462,7 @@ class ChatViewModel @Inject constructor(
                         // If the service is using a LOWER generation than what we subscribed with,
                         // it means the gen was incremented after service start. Adopt the service's
                         // gen — this is the authoritative source for live events.
-                        Log.w(TAG, "SSE DIAG: gen mismatch gen=${envelope.generation} < subscribed=$subscribedGeneration, adopting service gen")
+                        Log.d(TAG, "SSE gen mismatch gen=${envelope.generation} < subscribed=$subscribedGeneration, adopting service gen")
                         subscribedGeneration = envelope.generation
                     }
                     // Follow upward — update to newer generation
@@ -478,23 +485,12 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    // DIAGNOSTIC: Track event types
-    private val eventCounts = mutableMapOf<String, Int>()
-
     private fun handleEvent(event: ServerEvent) {
         val props = event.payload.properties
         val currentSessionId = _uiState.value.sessionId
 
         // Filter: only process events for current session (or global events without sessionID)
         if (props.sessionID != null && props.sessionID != currentSessionId) return
-
-        // DIAGNOSTIC: Count event types
-        val type = event.payload.type
-        eventCounts[type] = (eventCounts[type] ?: 0) + 1
-        // Log every 10 events of any type
-        if ((eventCounts.values.sum()) % 10 == 0) {
-            Log.w(TAG, "SSE DIAG: total=${eventCounts.values.sum()} counts=${eventCounts.entries.sortedByDescending { it.value }.take(6).joinToString { "${it.key}=${it.value}" }}")
-        }
 
         Log.d(TAG, "SSE event: ${event.payload.type} session=${props.sessionID?.take(8)} msg=${props.messageID?.take(8)}")
         lastSseEventTime = System.currentTimeMillis()
@@ -503,10 +499,9 @@ class ChatViewModel @Inject constructor(
             // ── Streaming text delta (incremental) ──
             "message.part.delta" -> {
                 val chunk = props.delta
-                if (chunk != null) {
-                    Log.w(TAG, "SSE DIAG: delta field=${props.field} partID=${props.partID?.take(8)} chunkLen=${chunk.length} chunk='${chunk.take(30).replace("\n","\\n")}'")
-                } else {
-                    Log.w(TAG, "SSE DIAG: delta with NULL chunk! field=${props.field} partID=${props.partID}")
+                if (chunk == null) {
+                    // Anomaly: delta without content — log at warn (rare, affects rendering)
+                    Log.w(TAG, "SSE: delta with NULL chunk! field=${props.field} partID=${props.partID}")
                 }
                 // Accumulate delta events for batch processing (16ms coalescing window)
                 synchronized(pendingDeltas) {
@@ -569,12 +564,12 @@ class ChatViewModel @Inject constructor(
             // ── Message created/updated ──
             "message.updated" -> {
                 val info = props.info
-                if (info != null) {
-                    Log.w(TAG, "SSE DIAG: message.updated role=${info.role} id=${info.id?.take(8)} agent=${info.agent}")
-                } else {
-                    Log.w(TAG, "SSE DIAG: message.updated with NULL info!")
+                if (info == null) {
+                    if (BuildConfig.DEBUG) {
+                        Log.d(TAG, "SSE: message.updated with NULL info!")
+                    }
+                    return
                 }
-                if (info == null) return
                 if (info.role == "assistant") {
                     val currentPending = _uiState.value.pendingAssistantMessageId
                     if (currentPending == info.id) return
@@ -610,10 +605,16 @@ class ChatViewModel @Inject constructor(
                     // Also skip optimistic local messages (prefixed with "local_")
                     if (msgId.startsWith("local_")) return
                     Log.d(TAG, "Incremental SSE: adding ${info.role} message ${msgId.take(8)}")
-                    // Fetch messages to replace the optimistic local placeholder with real data
-                    viewModelScope.launch {
+                    // Fetch messages to replace the optimistic local placeholder with real data.
+                    // Debounced: one user message can emit several message.updated events.
+                    messageReloadJob?.cancel()
+                    messageReloadJob = viewModelScope.launch {
+                        delay(MESSAGE_RELOAD_DEBOUNCE_MS)
+                        val reloadSessionId = _uiState.value.sessionId
                         try {
-                            val allMessages = repository.getMessages(_uiState.value.sessionId, _uiState.value.sessionDirectory)
+                            val allMessages = repository.getMessages(reloadSessionId, _uiState.value.sessionDirectory)
+                            // Session may have switched while we were debouncing — discard if so
+                            if (_uiState.value.sessionId != reloadSessionId) return@launch
                             _uiState.update { it.copy(chatDisplay = it.chatDisplay.copy(messages = allMessages.applyMessageFilters(it.sessionMeta.revertMessageId))) }
                         } catch (e: Exception) {
                             Log.w(TAG, "Failed to fetch messages after user message.updated", e)
@@ -632,7 +633,7 @@ class ChatViewModel @Inject constructor(
 
             // ── Session idle = PRIMARY completion signal ──
             "session.idle" -> {
-                Log.w(TAG, "SSE DIAG: session.idle RECEIVED isStreaming=${_uiState.value.isStreaming} isSending=${_uiState.value.isSending}")
+                Log.d(TAG, "session.idle received isStreaming=${_uiState.value.isStreaming} isSending=${_uiState.value.isSending}")
                 val state = _uiState.value
                 // Only finalize if we're streaming AND the AI has actually started responding
                 // (pendingAssistantMessageId set by message.updated). Prevents premature clearing
@@ -1732,6 +1733,20 @@ class ChatViewModel @Inject constructor(
         filterReverted(revertMessageId).trimToLatest()
 
     /**
+     * Lifecycle-aware switch for fallback polling — driven by the chat screen's
+     * LifecycleResumeEffect. Polling only checks for new messages while the
+     * screen is RESUMED; in the background it stays silent.
+     */
+    fun setPollingActive(active: Boolean) {
+        pollingActive = active
+        if (!active) {
+            pollingJob?.cancel()
+        } else if (pollingJob?.isActive != true && _uiState.value.sessionId.isNotBlank()) {
+            startFallbackPolling(_uiState.value.sessionId)
+        }
+    }
+
+    /**
      * Fallback polling: only checks for new messages when SSE appears to have stalled
      * (no events received for 15 seconds). This avoids redundant API calls while SSE
      * is actively streaming, reducing server load and battery usage.
@@ -1739,8 +1754,9 @@ class ChatViewModel @Inject constructor(
     private fun startFallbackPolling(expectedSessionId: String) {
         pollingJob?.cancel()
         pollingJob = viewModelScope.launch {
-            while (isActive) {
+            while (isActive && pollingActive) {
                 delay(5000)  // Check every 5 seconds
+                if (!pollingActive) break
                 if (_uiState.value.sessionId != expectedSessionId) break
                 if (_uiState.value.isStreaming) continue  // Still streaming via SSE, skip
 

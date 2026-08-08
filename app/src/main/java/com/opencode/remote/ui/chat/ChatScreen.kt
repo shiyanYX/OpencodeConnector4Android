@@ -37,6 +37,7 @@ import com.opencode.remote.data.api.dto.MessageInfoData
 import com.opencode.remote.ui.components.ErrorSnackbar
 import com.opencode.remote.ui.strings.AppLocale
 import androidx.lifecycle.compose.LifecycleResumeEffect
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
@@ -48,7 +49,7 @@ fun ChatScreen(
     onBack: () -> Unit,
     viewModel: ChatViewModel = hiltViewModel(),
 ) {
-    val uiState by viewModel.uiState.collectAsState()
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
     val s = AppLocale.strings
     val density = LocalDensity.current
@@ -87,20 +88,16 @@ fun ChatScreen(
     var resumeKey by remember { mutableIntStateOf(0) }
     val coroutineScope = rememberCoroutineScope()
 
-    // Session initialization
-    LaunchedEffect(sessionId) {
-        shouldAutoScroll = true
-        initialScrollDone = false
-        viewModel.initialize(sessionId, directory)
-    }
-
-    // Resume: re-init + trigger re-scroll
+    // Session initialization — LifecycleResumeEffect (keyed by sessionId) covers
+    // both first entry AND session switches, so a separate LaunchedEffect would
+    // double-initialize on first composition (duplicate message load + SSE resubscribe).
     LifecycleResumeEffect(sessionId) {
+        viewModel.setPollingActive(true)
         viewModel.initialize(sessionId, directory)
         shouldAutoScroll = true
         initialScrollDone = false
         resumeKey++
-        onPauseOrDispose { /* no-op */ }
+        onPauseOrDispose { viewModel.setPollingActive(false) }
     }
 
     // Total items = messages + optional active assistant panel

@@ -43,6 +43,9 @@ internal sealed class MdSpan {
 
 // ─── Markdown Parsing ─────────────────────────────────────────────────────
 
+/** Compiled once — compiling a Regex on every inline parse caused JIT churn during streaming. */
+private val inlineSpanRegex = Regex("""(\*\*(.+?)\*\*|`([^`]+)`|\*(.+?)\*)""")
+
 internal fun parseMarkdown(text: String): List<MdSegment> {
     val segments = mutableListOf<MdSegment>()
     val lines = text.lines()
@@ -82,10 +85,9 @@ internal fun parseMarkdown(text: String): List<MdSegment> {
 
 internal fun parseInlineSpans(text: String): List<MdSpan> {
     val spans = mutableListOf<MdSpan>()
-    val regex = Regex("""(\*\*(.+?)\*\*|`([^`]+)`|\*(.+?)\*)""")
     var lastEnd = 0
 
-    for (match in regex.findAll(text)) {
+    for (match in inlineSpanRegex.findAll(text)) {
         if (match.range.first > lastEnd) {
             spans.add(MdSpan.Plain(text.substring(lastEnd, match.range.first)))
         }

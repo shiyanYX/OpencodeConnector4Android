@@ -35,7 +35,6 @@ class ChatViewModelNewEventHandlersTest {
     private lateinit var eventBus: SseEventBus
     private lateinit var repository: OConnectorRepository
     private lateinit var connectionPreferences: ConnectionPreferences
-    private lateinit var activeSessionStore: ActiveSessionStore
     private lateinit var context: Context
     private lateinit var viewModel: ChatViewModel
     private lateinit var handleEvent: Method
@@ -46,14 +45,13 @@ class ChatViewModelNewEventHandlersTest {
         eventBus = SseEventBus()
         repository = mockk(relaxed = true)
         connectionPreferences = mockk(relaxed = true)
-        activeSessionStore = mockk(relaxed = true)
         context = mockk(relaxed = true)
         every { repository.currentGeneration } returns 1L
         coEvery { repository.getMessages(any(), any()) } returns emptyList()
         every { repository.activeSessionId } returns ""
         every { repository.activeSessionDirectory } returns null
 
-        viewModel = ChatViewModel(repository, eventBus, connectionPreferences, activeSessionStore, context)
+        viewModel = ChatViewModel(repository, eventBus, connectionPreferences, context)
         // Access private handleEvent via reflection
         handleEvent = ChatViewModel::class.java.getDeclaredMethod("handleEvent", ServerEvent::class.java)
         handleEvent.isAccessible = true

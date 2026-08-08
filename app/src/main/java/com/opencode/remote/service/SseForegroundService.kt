@@ -31,6 +31,10 @@ class SseForegroundService : Service() {
 
     private var sseJob: Job? = null
 
+    /** Generation currently being collected — duplicate starts with the same gen are no-ops. */
+    @Volatile
+    private var activeGeneration: Long = -1L
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val notification = createNotification()
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
@@ -60,6 +64,14 @@ class SseForegroundService : Service() {
         }
 
         val generation = intent.getLongExtra("generation", 0L)
+
+        // Reconnect/debounce: don't tear down and re-collect when the service is
+        // already running for this generation (multiple startForegroundService
+        // callers — connect helpers, network recovery, deep links — may re-fire).
+        if (activeGeneration == generation && sseJob?.isActive == true) {
+            return START_STICKY
+        }
+        activeGeneration = generation
 
         // Activate generation on event bus — filters stale events at source
         eventBus.activateGeneration(generation)

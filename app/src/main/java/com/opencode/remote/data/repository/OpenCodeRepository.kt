@@ -157,6 +157,8 @@ class OConnectorRepositoryImpl @Inject constructor(
 
     companion object {
         private const val TAG = "OConnectorRepository"
+        /** Debounce window for streaming state disk writes (streaming flushes run at ~60x/sec). */
+        private const val STREAMING_PERSIST_DEBOUNCE_MS = 500L
     }
 
     private val connectionGeneration = java.util.concurrent.atomic.AtomicLong(0)
@@ -177,6 +179,56 @@ class OConnectorRepositoryImpl @Inject constructor(
     // ─── Disk persistence for state that must survive process death ───────
     private val statePrefs: SharedPreferences by lazy {
         context.getSharedPreferences("opencode_state_cache", Context.MODE_PRIVATE)
+    }
+
+    /**
+     * Streaming persistence is debounced: during SSE streaming the blocks are
+     * updated up to ~60x/sec on the main thread. Each synchronous commit() with
+     * a full JSON re-encode caused frame jank. Writes are now coalesced into a
+     * single apply() at most every [STREAMING_PERSIST_DEBOUNCE_MS] (tail-following:
+     * the write runs shortly after the LAST change, so at most ~500ms of streaming
+     * tail can be lost on process death — the 5min TTL restore heuristics handle it).
+     */
+    // Lazy: creating a Handler needs the main Looper, which plain-JVM unit tests
+    // (non-Robolectric) can't provide at construction time.
+    private val mainHandler by lazy { android.os.Handler(android.os.Looper.getMainLooper()) }
+    private var streamingPersistScheduled = false
+
+    private val streamingPersistRunnable = Runnable {
+        streamingPersistScheduled = false
+        writeStreamingStateNow()
+    }
+
+    private fun persistStreamingState() {
+        if (streamingPersistScheduled) return
+        streamingPersistScheduled = true
+        mainHandler.postDelayed(streamingPersistRunnable, STREAMING_PERSIST_DEBOUNCE_MS)
+    }
+
+    private fun writeStreamingStateNow() {
+        try {
+            val sessionId = _streamingSessionId
+            if (sessionId != null) {
+                val segmentsJson = json.encodeToString(ListSerializer(ResponseSegment.serializer()), _streamingBlocks)
+                statePrefs.edit()
+                    .putString("stream_session", sessionId)
+                    .putString("stream_segments", segmentsJson)
+                    .putString("stream_agent", _streamingAgent)
+                    .putString("stream_pending_msg", _streamingPendingMsgId)
+                    .putLong("stream_timestamp", System.currentTimeMillis())
+                    .apply()
+            } else {
+                statePrefs.edit()
+                    .remove("stream_session")
+                    .remove("stream_segments")
+                    .remove("stream_agent")
+                    .remove("stream_pending_msg")
+                    .remove("stream_timestamp")
+                    .apply()
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to persist streaming state", e)
+        }
     }
 
     private fun persistBlockingState(sessionId: String, cache: BlockingStateCache?) {
@@ -221,33 +273,10 @@ class OConnectorRepositoryImpl @Inject constructor(
             .apply()
     }
 
-    private fun persistStreamingState() {
-        try {
-            val sessionId = _streamingSessionId
-            if (sessionId != null) {
-                val segmentsJson = json.encodeToString(ListSerializer(ResponseSegment.serializer()), _streamingBlocks)
-                statePrefs.edit()
-                    .putString("stream_session", sessionId)
-                    .putString("stream_segments", segmentsJson)
-                    .putString("stream_agent", _streamingAgent)
-                    .putString("stream_pending_msg", _streamingPendingMsgId)
-                    .putLong("stream_timestamp", System.currentTimeMillis())
-                    .commit()
-            } else {
-                statePrefs.edit()
-                    .remove("stream_session")
-                    .remove("stream_segments")
-                    .remove("stream_agent")
-                    .remove("stream_pending_msg")
-                    .remove("stream_timestamp")
-                    .commit()
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to persist streaming state", e)
-        }
-    }
-
     private fun clearStreamingDisk() {
+        // Drop any pending debounced write so stale state isn't resurrected after clear.
+        mainHandler.removeCallbacks(streamingPersistRunnable)
+        streamingPersistScheduled = false
         statePrefs.edit()
             .remove("stream_session")
             .remove("stream_segments")

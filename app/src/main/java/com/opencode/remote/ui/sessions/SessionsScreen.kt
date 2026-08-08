@@ -65,10 +65,11 @@ fun SessionsScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val s = AppLocale.strings
 
-    // Auto-refresh when navigating back to this screen
+    // Auto-refresh when navigating back to this screen; polling only runs while RESUMED
     LifecycleResumeEffect(Unit) {
+        viewModel.setPollingActive(true)
         viewModel.loadSessions()
-        onPauseOrDispose { /* no-op */ }
+        onPauseOrDispose { viewModel.setPollingActive(false) }
     }
 
     Scaffold(
@@ -146,8 +147,6 @@ fun SessionsScreen(
                 }
 
                 else -> {
-                    val statusMap by viewModel.sessionStatusMap.collectAsStateWithLifecycle()
-
                     val grouped = remember(uiState.sessions) {
                         uiState.sessions
                             .groupBy { it.directory ?: "unknown" }
@@ -158,16 +157,6 @@ fun SessionsScreen(
                             .sortedByDescending { (_, sessions) ->
                                 sessions.maxOfOrNull { it.time?.updated ?: it.time?.created ?: 0L } ?: 0L
                             }
-                    }
-
-                    // Precompute busy state per directory
-                    val busyDirectories = remember(statusMap, grouped) {
-                        grouped
-                            .filter { (_, sessions) ->
-                                sessions.any { statusMap[it.id] == SessionStatus.BUSY }
-                            }
-                            .map { (dir, _) -> dir }
-                            .toSet()
                     }
 
                     val timeGrouped = remember(grouped) {
@@ -204,10 +193,13 @@ fun SessionsScreen(
                                 items = projects,
                                 key = { (dir, _) -> dir }
                             ) { (directory, sessions) ->
+                                // statusMap read lives in the item scope so streaming
+                                // status changes only recompose the affected rows
+                                val statusMap by viewModel.sessionStatusMap.collectAsStateWithLifecycle()
                                 ProjectCard(
                                     directory = directory,
                                     sessionCount = sessions.size,
-                                    hasBusySessions = directory in busyDirectories,
+                                    hasBusySessions = sessions.any { statusMap[it.id] == SessionStatus.BUSY },
                                     onClick = { onProjectClick(directory) },
                                     modifier = Modifier.animateItemPlacement(tween(300)),
                                 )
@@ -327,10 +319,11 @@ fun ProjectSessionsScreen(
         label = "memo_content_offset",
     )
 
-    // Auto-refresh when navigating back to this screen
+    // Auto-refresh when navigating back to this screen; polling only runs while RESUMED
     LifecycleResumeEffect(Unit) {
+        viewModel.setPollingActive(true)
         viewModel.loadSessions()
-        onPauseOrDispose { /* no-op */ }
+        onPauseOrDispose { viewModel.setPollingActive(false) }
     }
 
     // Auto-navigate when a new session is created
@@ -455,7 +448,6 @@ fun ProjectSessionsScreen(
 
                         else -> {
                             val isSearching = uiState.searchQuery.isNotBlank()
-                            val statusMap by viewModel.sessionStatusMap.collectAsStateWithLifecycle()
                             val childrenMap by viewModel.childrenMap.collectAsStateWithLifecycle()
                             val allProjectSessionsMap = remember(uiState.sessions) {
                                 viewModel.allSessionsForProject(directory).associateBy { it.id }
@@ -524,6 +516,9 @@ fun ProjectSessionsScreen(
                                                 items = filteredSessions,
                                                 key = { it.id }
                                             ) { session ->
+                                                // statusMap read lives in the item scope so
+                                                // streaming status changes only recompose one row
+                                                val statusMap by viewModel.sessionStatusMap.collectAsStateWithLifecycle()
                                                 SessionCard(
                                                     session = session,
                                                     status = statusMap[session.id],
@@ -561,7 +556,9 @@ fun ProjectSessionsScreen(
                                                         else -> true
                                                     }
                                                     val isExpanded = session.id in uiState.expandedParents
-
+                                                    // statusMap read lives in the item scope so
+                                                    // streaming status changes only recompose one row
+                                                    val statusMap by viewModel.sessionStatusMap.collectAsStateWithLifecycle()
                                                     SessionCard(
                                                         session = session,
                                                         status = statusMap[session.id],

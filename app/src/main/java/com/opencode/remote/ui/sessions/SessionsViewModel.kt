@@ -80,6 +80,10 @@ class SessionsViewModel @Inject constructor(
     private var sseJob: Job? = null
     private var pollingJob: Job? = null
     private var searchJob: Job? = null
+    private var loadSessionsJob: Job? = null
+    /** Polling is enabled only while one of the sessions screens is RESUMED. */
+    @Volatile
+    private var pollingActive = false
 
     companion object {
         private const val TAG = "SessionsViewModel"
@@ -160,7 +164,10 @@ class SessionsViewModel @Inject constructor(
     }
 
     fun loadSessions() {
-        viewModelScope.launch {
+        // Cancel any in-flight load so concurrent triggers (init/SSE/polling/resume)
+        // can't interleave or let a stale response overwrite a newer one.
+        loadSessionsJob?.cancel()
+        loadSessionsJob = viewModelScope.launch {
             // Only show spinner if there's no existing data (first load)
             val hasData = _uiState.value.sessions.isNotEmpty()
             if (!hasData) {
@@ -382,15 +389,28 @@ class SessionsViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Lifecycle-aware polling switch: the screens call this from LifecycleResumeEffect.
+     * Polling (every 30s, listAllSessions is expensive) only runs while a sessions
+     * screen is RESUMED, so backgrounded app / chat on top stops the network chatter.
+     */
+    fun setPollingActive(active: Boolean) {
+        if (active) {
+            startSessionsPolling()
+        } else {
+            pollingActive = false
+            pollingJob?.cancel()
+        }
+    }
+
     private fun startSessionsPolling() {
+        pollingActive = true
+        pollingJob?.cancel()
         pollingJob = viewModelScope.launch {
-            while (isActive) {
+            while (isActive && pollingActive) {
                 delay(30_000)  // 30-second interval (listAllSessions is expensive)
-                try {
-                    loadSessions()
-                } catch (e: Exception) {
-                    Log.w(TAG, "Sessions polling error", e)
-                }
+                if (!pollingActive) break
+                loadSessions()
             }
         }
     }
