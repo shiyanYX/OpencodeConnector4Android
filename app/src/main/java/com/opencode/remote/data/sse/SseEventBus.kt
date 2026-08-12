@@ -4,6 +4,7 @@ import com.opencode.remote.data.api.dto.ServerEvent
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -20,6 +21,9 @@ class SseEventBus @Inject constructor() {
         onBufferOverflow = BufferOverflow.DROP_OLDEST
     )
     val events: SharedFlow<EventEnvelope> = _events.asSharedFlow()
+
+    /** Number of active collectors — used to await subscription in tests. */
+    val subscriberCount: StateFlow<Int> = _events.subscriptionCount
 
     fun emit(event: ServerEvent, generation: Long) {
         if (generation < activeGeneration) {

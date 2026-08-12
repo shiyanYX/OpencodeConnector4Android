@@ -367,6 +367,7 @@ internal fun ChatInputBar(
     onOpenSettings: () -> Unit,
     contextUsageK: String,
     onScrollToBottom: () -> Unit = {},
+    onOpenCommands: () -> Unit = {},
 ) {
     val s = AppLocale.strings
 
@@ -447,6 +448,31 @@ internal fun ChatInputBar(
                 }
 
                 // Divider 2
+                HorizontalDivider(
+                    modifier = Modifier
+                        .height(40.dp)
+                        .width(0.5.dp),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f),
+                )
+
+                // Commands key — "/" triggers the command/skill picker
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .height(40.dp)
+                        .clickable { onOpenCommands() },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = "/",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+
+                // Divider 3
                 HorizontalDivider(
                     modifier = Modifier
                         .height(40.dp)

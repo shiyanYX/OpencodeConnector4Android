@@ -98,12 +98,6 @@ fun SessionsScreen(
                             contentDescription = if (uiState.listDensity == ListDensity.COMPACT) s.densityDefault else s.densityCompact,
                         )
                     }
-                    IconButton(onClick = { viewModel.toggleDarkMode() }) {
-                        Icon(
-                            if (AppLocale.darkMode) Icons.Default.LightMode else Icons.Default.DarkMode,
-                            contentDescription = if (AppLocale.darkMode) "Light mode" else "Dark mode",
-                        )
-                    }
                     IconButton(onClick = { viewModel.loadSessions() }) {
                         Icon(Icons.Default.Refresh, contentDescription = s.refresh)
                     }
@@ -171,7 +165,9 @@ fun SessionsScreen(
 
                     LazyColumn(
                         contentPadding = PaddingValues(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalArrangement = Arrangement.spacedBy(
+                            if (uiState.listDensity == ListDensity.COMPACT) 2.dp else 6.dp
+                        ),
                     ) {
                         timeGrouped.forEach { (timeGroup, projects) ->
                             stickyHeader(key = timeGroup.name) {
@@ -508,7 +504,9 @@ fun ProjectSessionsScreen(
                                 } else {
                                     LazyColumn(
                                         contentPadding = PaddingValues(horizontal = 16.dp),
-                                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                                        verticalArrangement = Arrangement.spacedBy(
+                                            if (uiState.listDensity == ListDensity.COMPACT) 2.dp else 6.dp
+                                        ),
                                         modifier = Modifier.weight(1f),
                                     ) {
                                         if (isSearching) {
@@ -648,10 +646,10 @@ private fun SessionCard(
     modifier: Modifier = Modifier,
 ) {
     val isCompact = density == ListDensity.COMPACT
-    val cardPadding = if (isCompact) 8.dp else 16.dp
-    val spacerWidth = if (isCompact) 8.dp else 16.dp
+    val cardPadding = if (isCompact) 6.dp else 16.dp
+    val spacerWidth = if (isCompact) 6.dp else 16.dp
     val titleStyle = if (isCompact) {
-        MaterialTheme.typography.labelMedium
+        MaterialTheme.typography.labelLarge
     } else {
         MaterialTheme.typography.titleSmall
     }
@@ -663,7 +661,7 @@ private fun SessionCard(
     val labelStyle = if (isCompact) {
         MaterialTheme.typography.labelSmall
     } else {
-        MaterialTheme.typography.labelSmall
+        MaterialTheme.typography.labelMedium
     }
     val spacerHeight = if (isCompact) 2.dp else 4.dp
 
@@ -711,22 +709,24 @@ private fun SessionCard(
                     SessionSummaryStats(summary = session.summary)
                 }
                 Spacer(modifier = Modifier.height(spacerHeight))
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    val isCompleted = session.time?.completed != null && session.time.completed > 0
-                    Text(
-                        text = if (isCompleted) "COMPLETED" else "ACTIVE",
-                        style = labelStyle,
-                        color = if (isCompleted) MaterialTheme.colorScheme.onSurfaceVariant
-                                else MaterialTheme.colorScheme.primary,
-                    )
-                    session.version?.let { ver ->
+                if (!isCompact) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        val isCompleted = session.time?.completed != null && session.time.completed > 0
                         Text(
-                            text = "v$ver",
+                            text = if (isCompleted) "COMPLETED" else "ACTIVE",
                             style = labelStyle,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = if (isCompleted) MaterialTheme.colorScheme.onSurfaceVariant
+                                    else MaterialTheme.colorScheme.primary,
                         )
+                        session.version?.let { ver ->
+                            Text(
+                                text = "v$ver",
+                                style = labelStyle,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                 }
             }

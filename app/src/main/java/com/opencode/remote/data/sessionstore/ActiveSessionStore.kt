@@ -28,13 +28,29 @@ class ActiveSessionStore @Inject constructor() {
         _statusMap.update { it + (sessionId to status) }
     }
 
+    fun removeSession(sessionId: String) {
+        _statusMap.update { it - sessionId }
+    }
+
+    /**
+     * Merge statuses reported by the GET /session/status endpoint into the map.
+     *
+     * This is a merge, NOT a full replace: sessions absent from the endpoint
+     * keep their SSE-derived status. The endpoint on the target server
+     * (opencode serve) currently returns an empty map even while sessions are
+     * generating, so replacing the whole map would wipe SSE-fed busy dots.
+     */
     fun updateFromStatusEndpoint(map: Map<String, String>) {
-        _statusMap.value = map.mapValues { (_, v) ->
-            when (v.lowercase()) {
+        if (map.isEmpty()) return
+        var merged = _statusMap.value
+        map.forEach { (sessionId, value) ->
+            val status = when (value.lowercase()) {
                 "busy" -> SessionStatus.BUSY
                 else -> SessionStatus.IDLE
             }
+            merged = merged + (sessionId to status)
         }
+        _statusMap.value = merged
     }
 
     suspend fun refreshAllStatuses(repository: OConnectorRepository) {

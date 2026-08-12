@@ -76,6 +76,38 @@ class ActiveSessionStoreTest {
     }
 
     @Test
+    fun `updateFromStatusEndpoint keeps sessions absent from the endpoint`() = runTest {
+        store.statusMap.test {
+            awaitItem()
+
+            // SSE-fed status first
+            store.updateStatus("ses_sse", SessionStatus.BUSY)
+            awaitItem()
+
+            // Endpoint omits ses_sse entirely (as the live server does)
+            store.updateFromStatusEndpoint(mapOf("ses_other" to "idle"))
+            val map = awaitItem()
+            assertEquals(SessionStatus.BUSY, map["ses_sse"])
+            assertEquals(SessionStatus.IDLE, map["ses_other"])
+        }
+    }
+
+    @Test
+    fun `updateFromStatusEndpoint with empty map keeps existing statuses`() = runTest {
+        store.statusMap.test {
+            awaitItem()
+
+            store.updateStatus("ses_1", SessionStatus.BUSY)
+            awaitItem()
+
+            // Empty response (live server returns {}) must not wipe SSE-derived status
+            store.updateFromStatusEndpoint(emptyMap())
+            assertTrue(store.statusMap.value.containsKey("ses_1"))
+            assertEquals(SessionStatus.BUSY, store.statusMap.value["ses_1"])
+        }
+    }
+
+@Test
     fun `clear resets to empty map`() = runTest {
         store.statusMap.test {
             // Skip initial empty state
@@ -86,6 +118,37 @@ class ActiveSessionStoreTest {
 
             store.clear()
             assertTrue(awaitItem().isEmpty())
+        }
+    }
+
+    @Test
+    fun `removeSession deletes only the given session`() = runTest {
+        store.statusMap.test {
+            // Skip initial empty state
+            awaitItem()
+
+            store.updateStatus("ses_1", SessionStatus.BUSY)
+            store.updateStatus("ses_2", SessionStatus.IDLE)
+            awaitItem()
+            awaitItem()
+
+            store.removeSession("ses_1")
+            val map = awaitItem()
+            assertEquals(1, map.size)
+            assertEquals(SessionStatus.IDLE, map["ses_2"])
+        }
+    }
+
+    @Test
+    fun `removeSession on unknown id leaves map unchanged`() = runTest {
+        store.statusMap.test {
+            awaitItem()
+
+            store.updateStatus("ses_1", SessionStatus.BUSY)
+            awaitItem()
+
+            store.removeSession("ses_missing")
+            assertEquals(1, store.statusMap.value.size)
         }
     }
 }

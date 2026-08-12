@@ -9,7 +9,9 @@ import com.opencode.remote.BuildConfig
 import com.opencode.remote.OConnectorApp
 import com.opencode.remote.R
 import com.opencode.remote.data.api.dto.*
+import com.opencode.remote.data.cache.MessageCache
 import com.opencode.remote.data.datastore.ConnectionPreferences
+import com.opencode.remote.data.datastore.RecentSessionStore
 import com.opencode.remote.data.datastore.StoredModelSelection
 import com.opencode.remote.data.repository.OConnectorRepository
 import com.opencode.remote.data.sse.SseEventBus
@@ -79,11 +81,18 @@ data class ChatDisplayState(
     val inputText: String = "",
     val isLoading: Boolean = false,
     val error: String? = null,
+    // Older-message pagination (scrolling up loads earlier history by growing the limit)
+    val isLoadingOlderMessages: Boolean = false,
+    val hasMoreOlderMessages: Boolean = false,
     val todoItems: List<TodoItem> = emptyList(),
     val showTodoPanel: Boolean = false,
     val availableAgents: List<AgentInfo> = emptyList(),
     val selectedAgent: String? = null,
     val availableAgentsError: Boolean = false,
+    // Commands / skills
+    val availableCommands: List<CommandInfo> = emptyList(),
+    val isLoadingCommands: Boolean = false,
+    val availableCommandsError: Boolean = false,
     // Panel state
     val isPanelOpen: Boolean = false,
     val panelFiles: List<FileNode> = emptyList(),
@@ -131,11 +140,16 @@ data class ChatUiState(
     val inputText get() = chatDisplay.inputText
     val isLoading get() = chatDisplay.isLoading
     val error get() = chatDisplay.error
+    val isLoadingOlderMessages get() = chatDisplay.isLoadingOlderMessages
+    val hasMoreOlderMessages get() = chatDisplay.hasMoreOlderMessages
     val todoItems get() = chatDisplay.todoItems
     val showTodoPanel get() = chatDisplay.showTodoPanel
     val availableAgents get() = chatDisplay.availableAgents
     val selectedAgent get() = chatDisplay.selectedAgent
     val availableAgentsError get() = chatDisplay.availableAgentsError
+    val availableCommands get() = chatDisplay.availableCommands
+    val isLoadingCommands get() = chatDisplay.isLoadingCommands
+    val availableCommandsError get() = chatDisplay.availableCommandsError
     val isPanelOpen get() = chatDisplay.isPanelOpen
     val panelFiles get() = chatDisplay.panelFiles
     val currentFilePath get() = chatDisplay.currentFilePath
@@ -160,6 +174,8 @@ class ChatViewModel @Inject constructor(
     private val repository: OConnectorRepository,
     private val sseEventBus: SseEventBus,
     private val connectionPreferences: ConnectionPreferences,
+    private val recentSessionStore: RecentSessionStore,
+    private val messageCache: MessageCache,
     @ApplicationContext private val appContext: Context,
 ) : ViewModel() {
 
@@ -186,7 +202,7 @@ class ChatViewModel @Inject constructor(
      *   all of which are invoked on the main dispatcher.
      * - Therefore no synchronization (e.g. [ConcurrentHashMap.newKeySet]) is needed.
      */
-    private val completedMessageIds = mutableSetOf<String>()
+private val completedMessageIds = mutableSetOf<String>()
     /** Cache partID → confirmed segType from message.part.updated. Used to correctly classify
      *  subsequent message.part.delta events that may arrive with field=null. */
     private val partTypeMap = mutableMapOf<String?, String>()
@@ -195,12 +211,19 @@ class ChatViewModel @Inject constructor(
     private var batchFlushJob: Job? = null  // debounce job for 16ms coalescing window
     /** Queue of permission requests that arrived while another permission is being handled. */
     private val permissionQueue = mutableListOf<PermissionRequestData>()
+    /** Current message window size (limit) applied to load full conversation history.
+     *  Grows on each "load older messages" request. Reset to the initial value on initialize. */
+    private var messageWindowLimit = INITIAL_MESSAGE_LIMIT
 
     companion object {
         private const val TAG = "ChatViewModel"
         private const val MAX_STREAMING_TEXT = 10_000
         private const val TODO_COMPLETED_NOTIFICATION_ID = 2001
         private const val MESSAGE_RELOAD_DEBOUNCE_MS = 300L
+        /** Initial requested window size for the message list (server recent-N limit). */
+        private const val INITIAL_MESSAGE_LIMIT = 50
+        /** Cap for how far the user can page back into history (server memory bound). */
+        private const val MAX_MESSAGE_LIMIT = 500
     }
 
     /**
@@ -215,6 +238,16 @@ class ChatViewModel @Inject constructor(
      * This ordering ensures the UI never flashes between empty/streaming/idle states.
      */
     fun initialize(sessionId: String, directory: String? = null) {
+        // Same-session re-entry (activity-scoped ViewModel keeps messages,
+        // todo and streaming state alive while the chat screen is closed):
+        // skip the full reload — the retained SSE subscription keeps data live.
+        val current = _uiState.value
+        if (sessionId == current.sessionId && current.messages.isNotEmpty()) {
+            Log.d(TAG, "initialize() same-session re-entry, keeping state (messages=${current.messages.size})")
+            loadSessionInfo()
+            loadTodoList()
+            return
+        }
         pollingJob?.cancel()
         blockingWatchdogJob?.cancel()
         messageReloadJob?.cancel()  // discard any pending debounced reload from the previous session
@@ -235,25 +268,48 @@ class ChatViewModel @Inject constructor(
                     isLoadingFileContent = false,
                     error = null,
                     availableAgentsError = false,
+                    isLoadingOlderMessages = false,
+                    hasMoreOlderMessages = false,
                 ),
             )
         }
+        messageWindowLimit = INITIAL_MESSAGE_LIMIT
         Log.d(TAG, "initialize() preserving blocking state: permission=${_uiState.value.pendingPermission != null}, question=${_uiState.value.pendingQuestion != null}, blocked=${_uiState.value.isBlocked}")
 
         // Track active session for notification deep link
         repository.activeSessionId = sessionId
         repository.activeSessionDirectory = directory
 
+        // Record into the local recent-sessions history (title filled in by loadSessionInfo)
+        viewModelScope.launch {
+            recentSessionStore.record(
+                serverId = repository.getActiveServerId() ?: "",
+                sessionId = sessionId,
+                title = "",
+                directory = directory,
+            )
+        }
+
         // These can run in parallel — they don't affect streaming state
         loadSessionInfo()
         loadTodoList()
         loadAgents()
         loadModels()
+        loadCommands()
 
         // Core init: load messages → check state → subscribe to SSE (sequential)
         viewModelScope.launch {
             // Cache sessionId at launch time to detect stale coroutines
             val initSessionId = sessionId
+
+            // ── Step 0: Serve cached messages instantly (stale-while-revalidate) ──
+            // With a cache hit the conversation renders immediately — no spinner —
+            // and the network fetch below silently refreshes it in the background.
+            val cachedMessages = messageCache.load(sessionId)
+            if (cachedMessages != null && cachedMessages.isNotEmpty()) {
+                Log.d(TAG, "initialize() serving ${cachedMessages.size} cached messages, refreshing in background")
+                _uiState.update { it.copy(chatDisplay = it.chatDisplay.copy(messages = cachedMessages, isLoading = false)) }
+            }
 
             // ── Step 1: Load messages from server (await synchronously) ──
             val hasData = _uiState.value.messages.isNotEmpty()
@@ -263,6 +319,12 @@ class ChatViewModel @Inject constructor(
             val messages = try {
                 repository.getMessages(sessionId, directory)
             } catch (e: Exception) {
+                if (cachedMessages != null) {
+                    // Cache is being shown — fail silently, keep the cached copy.
+                    Log.w(TAG, "Background message refresh failed, serving cache", e)
+                    subscribeToEvents()
+                    return@launch
+                }
                 Log.e(TAG, "Failed to load messages", e)
                 val s = com.opencode.remote.ui.strings.AppLocale.strings
                 _uiState.update {
@@ -270,6 +332,13 @@ class ChatViewModel @Inject constructor(
                 }
                 subscribeToEvents()
                 return@launch
+            }
+
+            // If the server returned a full window it may have older history to page into.
+            _uiState.update { state ->
+                state.copy(chatDisplay = state.chatDisplay.copy(
+                    hasMoreOlderMessages = messages.size >= messageWindowLimit && messageWindowLimit < MAX_MESSAGE_LIMIT,
+                ))
             }
 
             // Guard: if initialize() was called again with a different sessionId,
@@ -388,6 +457,50 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Load older messages when the user scrolls to the top of the conversation.
+     *
+     * The server endpoint supports ?limit=N but no cursor — it returns the most
+     * recent N messages. To page back, we grow the requested window and merge
+     * (by id) with what's already displayed, which yields strictly older messages
+     * while preserving order and any optimistic/local entries.
+     */
+    fun loadOlderMessages() {
+        val state = _uiState.value
+        if (state.isLoading || state.isLoadingOlderMessages || !state.hasMoreOlderMessages) return
+        if (state.sessionId.isBlank()) return
+        viewModelScope.launch {
+            _uiState.update { it.copy(chatDisplay = it.chatDisplay.copy(isLoadingOlderMessages = true)) }
+            try {
+                val newLimit = (messageWindowLimit * 2).coerceAtMost(MAX_MESSAGE_LIMIT)
+                val fetched = repository.getMessages(state.sessionId, state.sessionDirectory, limit = newLimit)
+                messageWindowLimit = newLimit
+
+                // Merge fetched (authoritative order) with any locally-present messages
+                // (e.g. optimistic placeholders) that the server doesn't know about yet.
+                val byId = linkedMapOf<String, MessageInfo>()
+                fetched.forEach { byId[it.id] = it }
+                state.messages.forEach { byId.putIfAbsent(it.id, it) }
+
+                val merged = byId.values.toList().applyMessageFilters(state.revertMessageId)
+                val prevSize = state.messages.size
+                _uiState.update { it.copy(chatDisplay = it.chatDisplay.copy(
+                    messages = merged,
+                    isLoadingOlderMessages = false,
+                    hasMoreOlderMessages = merged.size > prevSize && newLimit < MAX_MESSAGE_LIMIT,
+                )) }
+                updateContextUsage()
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to load older messages", e)
+                _uiState.update { it.copy(chatDisplay = it.chatDisplay.copy(isLoadingOlderMessages = false)) }
+            }
+        }
+    }
+
+    /** Fetch messages using the current pagination window (keeps history across reloads). */
+    private suspend fun fetchMessages(): List<MessageInfo> =
+        repository.getMessages(_uiState.value.sessionId, _uiState.value.sessionDirectory, limit = messageWindowLimit)
+
     private fun loadSessionInfo() {
         viewModelScope.launch {
             try {
@@ -395,16 +508,24 @@ class ChatViewModel @Inject constructor(
                 val isCompleted = session.time?.completed != null && session.time.completed > 0
                 // If we don't have directory yet, store it from session info
                 val dir = _uiState.value.sessionDirectory ?: session.directory
+                val title = session.title ?: session.slug ?: "${com.opencode.remote.ui.strings.AppLocale.strings.sessionFallback} ${session.id.take(8)}..."
                 _uiState.update {
                     it.copy(
                         sessionMeta = it.sessionMeta.copy(
-                            sessionTitle = session.title ?: session.slug ?: "${com.opencode.remote.ui.strings.AppLocale.strings.sessionFallback} ${session.id.take(8)}...",
+                            sessionTitle = title,
                             sessionStatus = if (isCompleted) "completed" else "active",
                             sessionDirectory = dir,
                             revertMessageId = session.revert?.messageID,
                         ),
                     )
                 }
+                // Refresh the recent-history entry with the real title (deduped by sessionId)
+                recentSessionStore.record(
+                    serverId = repository.getActiveServerId() ?: "",
+                    sessionId = _uiState.value.sessionId,
+                    title = title,
+                    directory = dir,
+                )
             } catch (e: Exception) { Log.w(TAG, "Failed to load session info", e) }
         }
     }
@@ -444,6 +565,72 @@ class ChatViewModel @Inject constructor(
                 Log.w(TAG, "Failed to load agents", e)
                 _uiState.update { it.copy(chatDisplay = it.chatDisplay.copy(availableAgentsError = true)) }
             }
+        }
+    }
+
+    /** Load registered slash commands / skills from the server (used by the picker). */
+    fun loadCommands() {
+        viewModelScope.launch {
+            _uiState.update { it.copy(chatDisplay = it.chatDisplay.copy(isLoadingCommands = true)) }
+            try {
+                val commands = repository.listCommands(_uiState.value.sessionDirectory)
+                _uiState.update { it.copy(chatDisplay = it.chatDisplay.copy(
+                    availableCommands = commands,
+                    isLoadingCommands = false,
+                    availableCommandsError = false,
+                )) }
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to load commands", e)
+                _uiState.update { it.copy(chatDisplay = it.chatDisplay.copy(
+                    isLoadingCommands = false,
+                    availableCommandsError = true,
+                )) }
+            }
+        }
+    }
+
+    /** Execute a slash command (e.g. /compact) in the current session. */
+    fun runCommand(commandName: String, arguments: String = "") {
+        if (_uiState.value.sessionId.isBlank()) return
+        viewModelScope.launch {
+            try {
+                repository.runCommand(
+                    sessionId = _uiState.value.sessionId,
+                    command = commandName,
+                    arguments = arguments,
+                    agent = _uiState.value.selectedAgent,
+                    providerID = _uiState.value.selection.committed.model?.providerId,
+                    modelID = _uiState.value.selection.committed.model?.modelId,
+                    directory = _uiState.value.sessionDirectory,
+                )
+                // Command execution produces messages — refresh the conversation.
+                refreshMessagesForCommand()
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to run command /$commandName", e)
+                val s = com.opencode.remote.ui.strings.AppLocale.strings
+                _uiState.update { it.copy(chatDisplay = it.chatDisplay.copy(error = s.errCommandFailed.replace("%s", e.localizedMessage ?: e.javaClass.simpleName))) }
+            }
+        }
+    }
+
+    /**
+     * Fill "/name " into the input box after the user picks a command from the
+     * picker. The user can then append arguments and press send; the actual
+     * command execution is deferred until sendMessage() routes it (only when
+     * the command is in the server's command list).
+     */
+    fun fillCommandInInput(commandName: String) {
+        if (commandName.isBlank()) return
+        _uiState.update { it.copy(chatDisplay = it.chatDisplay.copy(inputText = "/$commandName ")) }
+    }
+
+    private suspend fun refreshMessagesForCommand() {
+        try {
+            val fresh = repository.getMessages(_uiState.value.sessionId, _uiState.value.sessionDirectory, limit = messageWindowLimit)
+            _uiState.update { it.copy(chatDisplay = it.chatDisplay.copy(messages = fresh.applyMessageFilters(it.sessionMeta.revertMessageId))) }
+            updateContextUsage()
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to refresh messages after command", e)
         }
     }
 
@@ -612,7 +799,7 @@ class ChatViewModel @Inject constructor(
                         delay(MESSAGE_RELOAD_DEBOUNCE_MS)
                         val reloadSessionId = _uiState.value.sessionId
                         try {
-                            val allMessages = repository.getMessages(reloadSessionId, _uiState.value.sessionDirectory)
+                            val allMessages = repository.getMessages(reloadSessionId, _uiState.value.sessionDirectory, limit = messageWindowLimit)
                             // Session may have switched while we were debouncing — discard if so
                             if (_uiState.value.sessionId != reloadSessionId) return@launch
                             _uiState.update { it.copy(chatDisplay = it.chatDisplay.copy(messages = allMessages.applyMessageFilters(it.sessionMeta.revertMessageId))) }
@@ -650,7 +837,7 @@ class ChatViewModel @Inject constructor(
                         try {
                             // Load messages with retry: the server may not have fully
                             // persisted the assistant message when session.idle fires.
-                            var freshMessages = repository.getMessages(state.sessionId, state.sessionDirectory)
+                            var freshMessages = repository.getMessages(state.sessionId, state.sessionDirectory, limit = messageWindowLimit)
                             val expectedId = state.pendingAssistantMessageId
                             if (expectedId != null) {
                                 var attempts = 0
@@ -658,7 +845,7 @@ class ChatViewModel @Inject constructor(
                                     attempts++
                                     Log.d(TAG, "session.idle: assistant msg not found, retry $attempts/3")
                                     delay(300L * attempts)
-                                    freshMessages = repository.getMessages(state.sessionId, state.sessionDirectory)
+                                    freshMessages = repository.getMessages(state.sessionId, state.sessionDirectory, limit = messageWindowLimit)
                                 }
                                 // Final check: does the assistant message have actual content?
                                 val assistantMsg = freshMessages.find { it.id == expectedId }
@@ -745,7 +932,7 @@ class ChatViewModel @Inject constructor(
                 if (!_uiState.value.isStreaming && !_uiState.value.isSending) {
                     viewModelScope.launch {
                         try {
-                            val fresh = repository.getMessages(_uiState.value.sessionId, _uiState.value.sessionDirectory)
+                            val fresh = repository.getMessages(_uiState.value.sessionId, _uiState.value.sessionDirectory, limit = messageWindowLimit)
                             _uiState.update { it.copy(chatDisplay = it.chatDisplay.copy(messages = fresh.applyMessageFilters(it.sessionMeta.revertMessageId))) }
                         } catch (e: Exception) {
                             Log.w(TAG, "Failed to refresh messages on idle", e)
@@ -771,7 +958,7 @@ class ChatViewModel @Inject constructor(
                 Log.d(TAG, "Session compacted — resetting context usage")
                 viewModelScope.launch {
                     try {
-                        val messages = repository.getMessages(_uiState.value.sessionId, _uiState.value.sessionDirectory)
+                        val messages = repository.getMessages(_uiState.value.sessionId, _uiState.value.sessionDirectory, limit = messageWindowLimit)
                         _uiState.update { it.copy(chatDisplay = it.chatDisplay.copy(messages = messages.applyMessageFilters(it.sessionMeta.revertMessageId))) }
                         updateContextUsage()
                     } catch (e: Exception) {
@@ -1012,6 +1199,18 @@ class ChatViewModel @Inject constructor(
         // Allow sending during recoveryPending — user is resuming an interrupted conversation
         if (_uiState.value.isBlocked && !_uiState.value.recoveryPending) return
 
+        // Slash command routing: only recognized when the command name appears in
+        // the server's command list. Anything else starting with "/" (e.g. a file
+        // path-like input) is treated as an ordinary prompt.
+        val commandCandidate = text.removePrefix("/").trim().substringBefore(' ').trim()
+        if (text.startsWith("/") && commandCandidate.isNotEmpty() &&
+            _uiState.value.availableCommands.any { it.name == commandCandidate }
+        ) {
+            val arguments = text.removePrefix("/").trim().removePrefix(commandCandidate).trim()
+            sendSlashCommand(commandCandidate, arguments, text)
+            return
+        }
+
         val state = _uiState.value
 
         // When user hasn't explicitly picked an agent, send null to let the server
@@ -1096,7 +1295,13 @@ class ChatViewModel @Inject constructor(
                 _uiState.update {
                     it.copy(
                         streaming = it.streaming.copy(isSending = false, isStreaming = false),
-                        chatDisplay = it.chatDisplay.copy(error = s.errSendFailed.replace("%s", e.localizedMessage ?: e.javaClass.simpleName)),
+                        chatDisplay = it.chatDisplay.copy(
+                            // Remove the optimistic placeholder the user just typed —
+                            // the server rejected it (e.g. quota exceeded), keeping it
+                            // would show a message that never exists server-side.
+                            messages = it.messages.filter { msg -> !msg.info.id.startsWith("local_") },
+                            error = s.errSendFailed.replace("%s", e.localizedMessage ?: e.javaClass.simpleName),
+                        ),
                     )
                 }
             }
@@ -1105,6 +1310,78 @@ class ChatViewModel @Inject constructor(
         // Start timeout watchdog — if no SSE events arrive within 120s, assume
         // the server is stuck (missed session.idle) and force-clear streaming state.
         startStreamingWatchdog()
+    }
+
+    /**
+     * Route a user message that matches a known server command through the
+     * slash-command endpoint instead of prompt_async. Shows an optimistic user
+     * message, sets isSending, and refreshes the conversation on completion.
+     */
+    private fun sendSlashCommand(command: String, arguments: String, displayText: String) {
+        val state = _uiState.value
+        val agentName = state.selectedAgent
+
+        if (state.isStreaming || state.isSending) {
+            Log.w(TAG, "sendSlashCommand() while streaming — aborting stale state before new command")
+            viewModelScope.launch {
+                try { repository.abortSession(state.sessionId, state.sessionDirectory) } catch (_: Exception) {}
+            }
+            batchFlushJob?.cancel()
+            synchronized(pendingDeltas) { pendingDeltas.clear() }
+            repository.clearStreaming()
+            streamingWatchdogJob?.cancel()
+        }
+
+        // Optimistic user message so the UI reflects the command immediately.
+        val localUserMsg = MessageInfo(
+            info = MessageInfoData(
+                id = "local_${System.currentTimeMillis()}",
+                role = "user",
+            ),
+            parts = listOf(MessagePart(type = "text", text = displayText)),
+        )
+        _uiState.update {
+            it.copy(
+                chatDisplay = it.chatDisplay.copy(
+                    inputText = "",
+                    messages = it.messages + localUserMsg,
+                    error = null,
+                ),
+                streaming = it.streaming.copy(
+                    isSending = true,
+                    isStreaming = false,
+                    streamingSegments = emptyList(),
+                    streamingAgent = agentName,
+                    pendingAssistantMessageId = null,
+                ),
+            )
+        }
+
+        viewModelScope.launch {
+            try {
+                repository.runCommand(
+                    sessionId = state.sessionId,
+                    command = command,
+                    arguments = arguments,
+                    agent = agentName,
+                    providerID = state.selection.committed.model?.providerId,
+                    modelID = state.selection.committed.model?.modelId,
+                    directory = state.sessionDirectory,
+                )
+                refreshMessagesForCommand()
+                _uiState.update { it.copy(streaming = it.streaming.copy(isSending = false, isStreaming = false)) }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to run command /$command", e)
+                repository.clearStreaming()
+                val s = com.opencode.remote.ui.strings.AppLocale.strings
+                _uiState.update {
+                    it.copy(
+                        streaming = it.streaming.copy(isSending = false, isStreaming = false),
+                        chatDisplay = it.chatDisplay.copy(error = s.errCommandFailed.replace("%s", e.localizedMessage ?: e.javaClass.simpleName)),
+                    )
+                }
+            }
+        }
     }
 
     fun abortSession() {
@@ -1172,7 +1449,7 @@ class ChatViewModel @Inject constructor(
                     .ifBlank { lastUserMsg.parts.firstOrNull()?.text ?: "" }
 
                 // 5. Reload messages (server filters by revert marker)
-                val freshMessages = repository.getMessages(state.sessionId, state.sessionDirectory)
+                val freshMessages = repository.getMessages(state.sessionId, state.sessionDirectory, limit = messageWindowLimit)
 
                 _uiState.update {
                     it.copy(
@@ -1205,7 +1482,7 @@ class ChatViewModel @Inject constructor(
                 if (state.revertMessageId == null) return@launch
 
                 val updatedSession = repository.unrevertSession(state.sessionId, state.sessionDirectory)
-                val freshMessages = repository.getMessages(state.sessionId, state.sessionDirectory)
+                val freshMessages = repository.getMessages(state.sessionId, state.sessionDirectory, limit = messageWindowLimit)
 
                 _uiState.update {
                     it.copy(
@@ -1706,7 +1983,7 @@ class ChatViewModel @Inject constructor(
         val strings = AppLocale.strings
         val title = _uiState.value.sessionTitle ?: strings.sessionFallback
 
-        val notification = android.app.Notification.Builder(appContext, OConnectorApp.CHANNEL_ID)
+        val notification = android.app.Notification.Builder(appContext, OConnectorApp.INTERVENTION_CHANNEL_ID)
             .setContentTitle(strings.todoCompleted)
             .setContentText(strings.todoCompletedDesc.format(title))
             .setSmallIcon(R.mipmap.ic_launcher)
@@ -1717,8 +1994,9 @@ class ChatViewModel @Inject constructor(
         notificationManager.notify(TODO_COMPLETED_NOTIFICATION_ID, notification)
     }
 
-    /** Trim message list to the latest [maxCount] messages to prevent memory bloat on long conversations. */
-    private fun List<MessageInfo>.trimToLatest(maxCount: Int = 150): List<MessageInfo> {
+    /** Trim message list to the latest [maxCount] messages to prevent memory bloat on long conversations.
+ *  Defaults to the current pagination window (grows as older history is loaded). */
+    private fun List<MessageInfo>.trimToLatest(maxCount: Int = messageWindowLimit.coerceAtLeast(150)): List<MessageInfo> {
         return if (size > maxCount) takeLast(maxCount) else this
     }
 
@@ -1775,7 +2053,7 @@ class ChatViewModel @Inject constructor(
                     val freshLatestId = freshMessages.lastOrNull()?.id
                     if (freshLatestId != null && freshLatestId != currentLatestId) {
                         Log.d(TAG, "Fallback polling detected new message: $freshLatestId")
-                        val fullMessages = repository.getMessages(_uiState.value.sessionId, _uiState.value.sessionDirectory)
+                        val fullMessages = repository.getMessages(_uiState.value.sessionId, _uiState.value.sessionDirectory, limit = messageWindowLimit)
                         _uiState.update { it.copy(chatDisplay = it.chatDisplay.copy(messages = fullMessages.applyMessageFilters(it.sessionMeta.revertMessageId))) }
                         updateContextUsage()
                     }
@@ -1813,7 +2091,7 @@ class ChatViewModel @Inject constructor(
                 repository.clearStreaming()
                 // Reload messages to get the latest state from server
                 try {
-                    val fresh = repository.getMessages(state.sessionId, state.sessionDirectory)
+                    val fresh = repository.getMessages(state.sessionId, state.sessionDirectory, limit = messageWindowLimit)
                     _uiState.update {
                         it.copy(
                             streaming = it.streaming.copy(

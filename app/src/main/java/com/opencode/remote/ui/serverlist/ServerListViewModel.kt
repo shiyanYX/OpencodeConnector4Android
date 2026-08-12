@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.opencode.remote.data.api.dto.ServerInfo
 import com.opencode.remote.data.datastore.ConnectionConfig
+import com.opencode.remote.data.datastore.ConnectionPreferences
 import com.opencode.remote.data.datastore.ServerManager
 import com.opencode.remote.data.repository.OConnectorRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -23,6 +24,7 @@ import javax.inject.Inject
 class ServerListViewModel @Inject constructor(
     private val serverManager: ServerManager,
     private val repository: OConnectorRepository,
+    private val preferences: ConnectionPreferences,
 ) : ViewModel() {
 
     @Immutable
@@ -31,10 +33,16 @@ class ServerListViewModel @Inject constructor(
         val isConnecting: Boolean = false,
         val connectedServerId: String? = null,
         val error: String? = null,
+        /** Set once after the first successful connection — UI should request POST_NOTIFICATIONS. */
+        val requestNotificationPermission: Boolean = false,
     )
 
     private val _uiState = MutableStateFlow(ServerListUiState())
     val uiState: StateFlow<ServerListUiState> = _uiState.asStateFlow()
+
+    fun notificationPermissionRequestHandled() {
+        _uiState.update { it.copy(requestNotificationPermission = false) }
+    }
 
     companion object {
         private const val TAG = "ServerListViewModel"
@@ -103,6 +111,7 @@ class ServerListViewModel @Inject constructor(
                         it.copy(
                             isConnecting = false,
                             connectedServerId = serverId,
+                            requestNotificationPermission = true,
                         )
                     }
                 } else {

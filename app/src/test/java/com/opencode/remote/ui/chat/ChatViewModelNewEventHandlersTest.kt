@@ -51,7 +51,7 @@ class ChatViewModelNewEventHandlersTest {
         every { repository.activeSessionId } returns ""
         every { repository.activeSessionDirectory } returns null
 
-        viewModel = ChatViewModel(repository, eventBus, connectionPreferences, context)
+        viewModel = ChatViewModel(repository, eventBus, connectionPreferences, mockk(relaxed = true), mockk(relaxed = true), context)
         // Access private handleEvent via reflection
         handleEvent = ChatViewModel::class.java.getDeclaredMethod("handleEvent", ServerEvent::class.java)
         handleEvent.isAccessible = true

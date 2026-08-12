@@ -105,7 +105,7 @@ class OpenCodeApiClientTest {
     }
 
     @Test
-    fun `refreshAllStatuses replaces existing statuses`() = runTest {
+    fun `refreshAllStatuses merges instead of replacing statuses`() = runTest {
         // Pre-populate store
         store.updateStatus("ses_old", SessionStatus.BUSY)
 
@@ -118,8 +118,9 @@ class OpenCodeApiClientTest {
 
         store.statusMap.test {
             val map = awaitItem()
-            // updateFromStatusEndpoint replaces the entire map
-            assertEquals(1, map.size)
+            // updateFromStatusEndpoint merges: ses_old keeps its SSE-derived busy status
+            assertEquals(2, map.size)
+            assertEquals(SessionStatus.BUSY, map["ses_old"])
             assertEquals(SessionStatus.IDLE, map["ses_new"])
         }
     }

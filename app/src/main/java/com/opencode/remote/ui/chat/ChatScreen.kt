@@ -17,13 +17,14 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
@@ -32,10 +33,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.opencode.remote.OConnectorApp
 import com.opencode.remote.data.api.dto.MessageInfo
 import com.opencode.remote.data.api.dto.MessageInfoData
 import com.opencode.remote.ui.components.ErrorSnackbar
 import com.opencode.remote.ui.strings.AppLocale
+import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.flow.first
@@ -47,12 +51,22 @@ fun ChatScreen(
     sessionId: String,
     directory: String? = null,
     onBack: () -> Unit,
-    viewModel: ChatViewModel = hiltViewModel(),
+    viewModel: ChatViewModel = viewModel(viewModelStoreOwner = LocalContext.current as androidx.activity.ComponentActivity),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    val listState = rememberLazyListState()
+    val listState = rememberSaveable(sessionId, saver = LazyListState.Saver) { LazyListState() }
     val s = AppLocale.strings
     val density = LocalDensity.current
+
+    // Register this session as the currently-visible one so intervention
+    // notifications stay quiet while the user is watching it.
+    val appContext = LocalContext.current.applicationContext as OConnectorApp
+    DisposableEffect(sessionId) {
+        appContext.notificationGate.setCurrentSessionId(sessionId)
+        onDispose {
+            appContext.notificationGate.setCurrentSessionId(null)
+        }
+    }
 
     // Panel gesture tracking — cumulative horizontal drag for open/close
     var cumulativeDragX by remember { mutableFloatStateOf(0f) }
@@ -84,8 +98,13 @@ fun ChatScreen(
     // Fix: wait for totalItemsCount to match the expected data count, which
     // can only happen after layout completes.
     var shouldAutoScroll by remember { mutableStateOf(true) }
-    var initialScrollDone by remember(sessionId) { mutableStateOf(false) }
+    var initialScrollDone by rememberSaveable(sessionId) { mutableStateOf(false) }
     var resumeKey by remember { mutableIntStateOf(0) }
+
+    // Scroll position restored from a previous visit (user had scrolled into
+    // history) => skip the auto-scroll-to-bottom on re-entry.
+    val positionRestored = remember(sessionId) { listState.firstVisibleItemIndex > 0 }
+    var showCommandPicker by remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
 
     // Session initialization — LifecycleResumeEffect (keyed by sessionId) covers
@@ -112,6 +131,11 @@ fun ChatScreen(
     //    before layout updates, the stale totalItemsCount won't match the expected
     //    data count, so the condition can't pass prematurely.
     LaunchedEffect(sessionId, resumeKey) {
+        if (positionRestored) {
+            initialScrollDone = true
+            shouldAutoScroll = false
+            return@LaunchedEffect
+        }
         snapshotFlow {
             val layoutCount = listState.layoutInfo.totalItemsCount
             val dataCount = uiState.messages.size + (if (uiState.isSending || uiState.isStreaming) 1 else 0)
@@ -135,6 +159,21 @@ fun ChatScreen(
         }.collect { atBottom ->
             if (atBottom == null || !initialScrollDone) return@collect
             shouldAutoScroll = atBottom
+        }
+    }
+
+    // 3. Older-history pagination: when the user has scrolled back to the very top,
+    //    request the server for more (earlier) messages. Growing the limit includes
+    //    older history, which visibly prepends above the current first message.
+    LaunchedEffect(Unit) {
+        snapshotFlow {
+            val layoutInfo = listState.layoutInfo
+            if (layoutInfo.totalItemsCount == 0) return@snapshotFlow null
+            layoutInfo.visibleItemsInfo.firstOrNull()?.index ?: 0
+        }.collect { firstVisible ->
+            if ((firstVisible ?: 0) <= 1 && uiState.hasMoreOlderMessages && !uiState.isLoadingOlderMessages) {
+                viewModel.loadOlderMessages()
+            }
         }
     }
 
@@ -347,6 +386,10 @@ fun ChatScreen(
                             selectedModel = uiState.selectedModel,
                             onOpenSettings = viewModel::openSelectionDialog,
                             contextUsageK = uiState.contextUsageK,
+                            onOpenCommands = {
+                                showCommandPicker = true
+                                viewModel.loadCommands()
+                            },
                             onScrollToBottom = {
                                 shouldAutoScroll = true
                                 coroutineScope.launch {
@@ -374,6 +417,28 @@ fun ChatScreen(
                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
+                        // Older-history loading indicator shown while paging back
+                        if (uiState.isLoadingOlderMessages && uiState.messages.isNotEmpty()) {
+                            item(key = "__loading_older__") {
+                                Box(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(vertical = 12.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    ) {
+                                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                                        Text(
+                                            text = s.loadingOlder,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                }
+                            }
+                        }
                         when {
                             uiState.isLoading -> {
                                 item(key = "__loading__") {
@@ -539,6 +604,21 @@ fun ChatScreen(
                 onAgentSelected = viewModel::updateDraftAgent,
                 onModelSelected = viewModel::updateDraftModel,
                 onVariantSelected = viewModel::updateDraftVariant,
+            )
+        }
+
+        // Command / skill picker
+        if (showCommandPicker) {
+            CommandPickerDialog(
+                commands = uiState.availableCommands,
+                isLoading = uiState.isLoadingCommands,
+                hasError = uiState.availableCommandsError,
+                onDismiss = { showCommandPicker = false },
+                onRetry = viewModel::loadCommands,
+                onRun = { cmd ->
+                    showCommandPicker = false
+                    viewModel.fillCommandInInput(cmd.name)
+                },
             )
         }
     }

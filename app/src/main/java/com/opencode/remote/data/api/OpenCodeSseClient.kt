@@ -4,6 +4,7 @@ import android.util.Log
 import android.util.Base64
 import com.opencode.remote.data.api.dto.*
 import io.ktor.client.*
+import io.ktor.client.engine.*
 import io.ktor.client.engine.okhttp.*
 import io.ktor.client.plugins.*
 import io.ktor.client.request.*
@@ -41,6 +42,13 @@ class OConnectorSseClient @Inject constructor(
     private val json: Json,
 ) {
 
+    /** Test seam: inject a custom engine (e.g. Ktor MockEngine). */
+    internal constructor(json: Json, testEngine: HttpClientEngine) : this(json) {
+        this.testEngine = testEngine
+        sseClient = createSseClient()
+    }
+
+    private var testEngine: HttpClientEngine? = null
     private var baseUrl: String = ""
     private var authHeader: String? = null
     private var autoReconnect: Boolean = true
@@ -48,26 +56,37 @@ class OConnectorSseClient @Inject constructor(
     @Volatile
     private var sseClient: HttpClient = createSseClient()
 
-    private fun createSseClient(insecureTrust: Boolean = false): HttpClient = HttpClient(OkHttp) {
-        install(HttpTimeout) {
-            requestTimeoutMillis = Long.MAX_VALUE // SSE is long-lived
-            socketTimeoutMillis = Long.MAX_VALUE
-        }
-        engine {
-            if (insecureTrust) {
-                val trustManager = object : X509TrustManager {
-                    override fun checkClientTrusted(chain: Array<X509Certificate>, authType: String) {}
-                    override fun checkServerTrusted(chain: Array<X509Certificate>, authType: String) {}
-                    override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
-                }
-                val sslContext = SSLContext.getInstance("TLS")
-                sslContext.init(null, arrayOf<TrustManager>(trustManager), java.security.SecureRandom())
-                config {
-                    sslSocketFactory(sslContext.socketFactory, trustManager)
-                    hostnameVerifier { _, _ -> true }
+    private fun createSseClient(insecureTrust: Boolean = false): HttpClient {
+        val test = testEngine
+        if (test != null) {
+            return HttpClient(test) {
+                install(HttpTimeout) {
+                    requestTimeoutMillis = Long.MAX_VALUE // SSE is long-lived
+                    socketTimeoutMillis = Long.MAX_VALUE
                 }
             }
         }
+        return HttpClient(OkHttp) {
+                install(HttpTimeout) {
+                    requestTimeoutMillis = Long.MAX_VALUE // SSE is long-lived
+                    socketTimeoutMillis = Long.MAX_VALUE
+                }
+                engine {
+                    if (insecureTrust) {
+                        val trustManager = object : X509TrustManager {
+                            override fun checkClientTrusted(chain: Array<X509Certificate>, authType: String) {}
+                            override fun checkServerTrusted(chain: Array<X509Certificate>, authType: String) {}
+                            override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
+                        }
+                        val sslContext = SSLContext.getInstance("TLS")
+                        sslContext.init(null, arrayOf<TrustManager>(trustManager), java.security.SecureRandom())
+                        config {
+                            sslSocketFactory(sslContext.socketFactory, trustManager)
+                            hostnameVerifier { _, _ -> true }
+                        }
+                    }
+                }
+            }
     }
 
     companion object {
@@ -137,6 +156,13 @@ class OConnectorSseClient @Inject constructor(
                         authHeader?.let { append(HttpHeaders.Authorization, it) }
                     }
                 }.execute { response ->
+                    if (response.status.value !in 200..299) {
+                        // Server rejected the stream (e.g. 401/403/429 quota or auth error).
+                        // Read the error body — opencode returns human-readable text like
+                        // "Free usage exceeded, subscribe to Go" — so the UI can surface it.
+                        val errorBody = try { response.bodyAsText().take(2000) } catch (_: Exception) { "" }
+                        throw IOException("HTTP ${response.status.value}${if (errorBody.isNotBlank()) ": $errorBody" else ""}")
+                    }
                     val channel: ByteReadChannel = response.bodyAsChannel()
                     sseChannelRef.set(channel)
 
@@ -178,6 +204,12 @@ class OConnectorSseClient @Inject constructor(
                 break
             } catch (e: Exception) {
                 Log.e(TAG, "SSE stream error: ${e.message}")
+                // A non-2xx rejection (auth/quota gate) is decisive — no amount of
+                // reconnecting will fix it. Surface it to the caller immediately.
+                if (e is IOException && (e.message?.startsWith("HTTP ") == true || e.message?.contains(": Free usage") == true)) {
+                    terminalError = e
+                    break
+                }
                 if (!autoReconnect || !isActive) break
             } finally {
                 heartbeatJob.cancel()

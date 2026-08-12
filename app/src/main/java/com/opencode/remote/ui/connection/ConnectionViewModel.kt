@@ -29,6 +29,8 @@ data class ConnectionUiState(
     val isConnected: Boolean = false,
     val isSaved: Boolean = false,
     val error: String? = null,
+    /** Set once after the first successful connection — UI should request POST_NOTIFICATIONS. */
+    val requestNotificationPermission: Boolean = false,
 )
 
 @HiltViewModel
@@ -180,7 +182,7 @@ class ConnectionViewModel @Inject constructor(
                     try {
                         withContext(Dispatchers.IO) { repository.listAgents() }
                     } catch (_: Exception) { /* non-critical */ }
-                    _uiState.update { it.copy(isConnecting = false, isConnected = true) }
+                    _uiState.update { it.copy(isConnecting = false, isConnected = true, requestNotificationPermission = true) }
                 } else {
                     repository.disconnect()
                     _uiState.update {
@@ -209,6 +211,10 @@ class ConnectionViewModel @Inject constructor(
 
     fun clearError() {
         _uiState.update { it.copy(error = null) }
+    }
+
+    fun notificationPermissionRequestHandled() {
+        _uiState.update { it.copy(requestNotificationPermission = false) }
     }
 
     /**
@@ -311,7 +317,7 @@ class ConnectionViewModel @Inject constructor(
                     // Only start SSE service after connection is confirmed reachable
                     repository.startSseService()
                     serverManager.saveLastActiveServerId(serverId)
-                    _uiState.update { it.copy(isConnecting = false, isConnected = true) }
+                    _uiState.update { it.copy(isConnecting = false, isConnected = true, requestNotificationPermission = true) }
                 } else {
                     repository.disconnect()
                     _uiState.update {

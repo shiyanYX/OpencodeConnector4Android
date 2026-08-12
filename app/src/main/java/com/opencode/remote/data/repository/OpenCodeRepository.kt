@@ -7,13 +7,19 @@ import com.opencode.remote.data.api.OConnectorApiClient
 import com.opencode.remote.data.api.OConnectorSseClient
 import com.opencode.remote.data.api.dto.*
 import com.opencode.remote.data.datastore.ConnectionConfig
+import com.opencode.remote.data.datastore.ConnectionPreferences
 import com.opencode.remote.data.network.NetworkMonitor
 import com.opencode.remote.service.SseForegroundService
 import com.opencode.remote.ui.chat.ResponseSegment
 import com.opencode.remote.ui.chat.PermissionRequestData
 import com.opencode.remote.ui.chat.QuestionRequestData
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import com.opencode.remote.data.cache.MessageCache
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
@@ -41,6 +47,8 @@ interface OConnectorRepository {
     fun connect(config: ConnectionConfig)
     /** Start SSE foreground service and network monitor. Call AFTER testConnection() succeeds. */
     fun startSseService()
+    /** Toggle keep-alive mode at runtime (OFF = power-saving, no foreground service). */
+    fun setKeepAliveEnabled(enabled: Boolean)
     fun disconnect()
     fun switchToServer(serverId: String, config: ConnectionConfig)
     fun getActiveServerId(): String?
@@ -91,6 +99,12 @@ interface OConnectorRepository {
 
     suspend fun listAgents(): List<AgentInfo>
     fun getCachedAgents(): List<AgentInfo>
+
+    // ─── Commands / Skills ──────────────────────────────────────────────
+
+    suspend fun listCommands(directory: String? = null): List<CommandInfo>
+    /** Run a slash command (e.g. /compact) in a session. */
+    suspend fun runCommand(sessionId: String, command: String, arguments: String = "", agent: String? = null, providerID: String? = null, modelID: String? = null, directory: String? = null)
 
     // ─── Files ──────────────────────────────────────────────────────────
 
@@ -153,6 +167,8 @@ class OConnectorRepositoryImpl @Inject constructor(
     @ApplicationContext private val context: Context,
     private val json: Json,
     private val networkMonitor: NetworkMonitor,
+    private val messageCache: MessageCache,
+    private val preferences: ConnectionPreferences,
 ) : OConnectorRepository {
 
     companion object {
@@ -328,6 +344,8 @@ class OConnectorRepositoryImpl @Inject constructor(
         connect(config)
         startSseService()
         activeServerId = serverId
+        // Messages belong to a server — never leak one server's cache into another
+        CoroutineScope(Dispatchers.IO).launch { messageCache.clearAll() }
     }
 
     override fun getActiveServerId(): String? = activeServerId
@@ -351,9 +369,23 @@ class OConnectorRepositoryImpl @Inject constructor(
     /**
      * Start the SSE foreground service and network recovery monitor.
      * Must be called AFTER [testConnection] succeeds.
+     *
+     * When keep-alive is OFF (power-saving mode) the foreground service and the
+     * network recovery monitor are NOT started: the connection itself is kept
+     * while the app is foregrounded (chat SSE subscribes directly), and
+     * background/foreground transitions are handled by KeepAliveLifecycleObserver.
      */
     override fun startSseService() {
         if (!connected) return
+        if (!isKeepAliveEnabled()) {
+            Log.d(TAG, "Keep-alive disabled — skipping foreground service and network monitor")
+            return
+        }
+        startKeepAliveComponents()
+    }
+
+    /** Start foreground service + network recovery monitor (keep-alive ON path). */
+    private fun startKeepAliveComponents() {
         val gen = connectionGeneration.get()
         try {
             SseForegroundService.start(context, gen)
@@ -373,6 +405,38 @@ class OConnectorRepositoryImpl @Inject constructor(
             }
         }
         networkMonitor.start()
+    }
+
+    /** Single source of truth for the keep-alive preference (memory-cached). */
+    private var keepAliveCached: Boolean? = null
+
+    @Volatile
+    private var keepAliveRunning = true
+
+    private fun isKeepAliveEnabled(): Boolean {
+        if (keepAliveCached == null) {
+            keepAliveCached = try {
+                kotlinx.coroutines.runBlocking { preferences.keepAlive.first() }
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to read keep-alive preference", e)
+                true
+            }
+        }
+        return keepAliveCached == true && keepAliveRunning
+    }
+
+    /** Immediate toggle — called when the setting changes while a connection is active. */
+    override fun setKeepAliveEnabled(enabled: Boolean) {
+        keepAliveRunning = enabled
+        if (!enabled) {
+            // Power-saving mode: drop the foreground service + network monitor now
+            try { SseForegroundService.stop(context) } catch (_: Exception) {}
+            networkMonitor.stop()
+            networkMonitor.onNetworkAvailable = null
+        } else if (connected) {
+            // Back to keep-alive: restore the service + monitor for the live connection
+            startKeepAliveComponents()
+        }
     }
 
     /**
@@ -431,8 +495,15 @@ class OConnectorRepositoryImpl @Inject constructor(
 
     // ─── Message Operations ──────────────────────────────────────────
 
-    override suspend fun getMessages(sessionId: String, directory: String?, limit: Int?): List<MessageInfo> =
-        requireClient().getMessages(sessionId, directory, limit)
+    override suspend fun getMessages(sessionId: String, directory: String?, limit: Int?): List<MessageInfo> {
+        val messages = requireClient().getMessages(sessionId, directory, limit)
+        // Every message refresh path goes through here (initialize, reload, pagination,
+        // session.idle SSE reload, undo/redo) — merge keeps the cache fresh.
+        try { messageCache.merge(sessionId, messages) } catch (e: Exception) {
+            Log.w(TAG, "Failed to update message cache", e)
+        }
+        return messages
+    }
 
     override suspend fun sendMessage(sessionId: String, message: String, agent: String?, providerID: String?, modelID: String?, variant: String?, directory: String?) =
         requireClient().sendMessage(sessionId, message, agent, providerID, modelID, variant, directory)
@@ -511,6 +582,14 @@ class OConnectorRepositoryImpl @Inject constructor(
     }
 
     override fun getCachedModels(): List<ModelInfo> = cachedModels ?: emptyList()
+
+    // ─── Commands / Skills ─────────────────────────────────────────────
+
+    override suspend fun listCommands(directory: String?): List<CommandInfo> =
+        requireClient().listCommands(directory)
+
+    override suspend fun runCommand(sessionId: String, command: String, arguments: String, agent: String?, providerID: String?, modelID: String?, directory: String?) =
+        requireClient().runCommand(sessionId, command, arguments, agent, providerID, modelID, directory)
 
     // ─── SSE Events ──────────────────────────────────────────────────
 

@@ -5,7 +5,7 @@ import androidx.compose.runtime.*
 // ─── Language state ────────────────────────────────────────────────
 
 object AppLocale {
-    var language by mutableStateOf("en")
+    var language by mutableStateOf("zh")
     var darkMode by mutableStateOf(false)
     val strings: AppStrings get() = if (language == "zh") zhStrings else enStrings
 }
@@ -32,10 +32,8 @@ data class AppStrings(
     val connecting: String,
     val tipsTitle: String,
     val tipsContent: String,
-    val helpLabel: String,
 
     // Sessions screen
-    val sessionList: String,
     val projects: String,
     val sessions: String,
     val serverPath: String,
@@ -49,14 +47,13 @@ data class AppStrings(
     val moreActions: String,
     val close: String,
     val hideChildSessions: String,
-    val showChildSessions: String,
     val expandChildren: String,
     val collapseChildren: String,
 
     // Chat screen
     val sendFirstMsg: String,
     val inputPlaceholder: String,
-    val thinking: String,
+    val loadingOlder: String,
     val thinkingActive: String,
     val thought: String,
     val thoughtForSeconds: String,
@@ -67,10 +64,6 @@ data class AppStrings(
     val redo: String,
     val todoTitle: String,
     val noTodos: String,
-    val toolCalls: String,
-    val defaultAgent: String,
-    val selectAgent: String,
-    val agentLoadFailed: String,
     val me: String,
     val expand: String,
     val collapse: String,
@@ -164,6 +157,7 @@ data class AppStrings(
     val errUnknown: String,
     val errSendFailed: String,
     val errAbortFailed: String,
+    val errCommandFailed: String,
     val errUndoFailed: String,
     val errRedoFailed: String,
 
@@ -174,12 +168,22 @@ data class AppStrings(
     val updateChangelog: String,
     val updateChecking: String,
     val updateUpToDate: String,
-    val updateGithubFailed: String,
 
     // Notification
     val notificationRunning: String,
-    val notificationChannelName: String,
-    val notificationChannelDesc: String,
+
+    // Notifications settings + intervention/run notifications
+    val notificationsDesc: String,
+    val connectedTo: String,
+    val notificationSubtext: String,
+    val notificationBlockedTitle: String,
+    val notificationPermissionBody: String,
+    val notificationQuestionBody: String,
+    val notificationBlockedBody: String,
+    val notificationRunDoneTitle: String,
+    val notificationRunDoneBody: String,
+
+    // Battery optimization (keep SSE alive with screen off)
 
     // Todo completion
     val todoCompleted: String,
@@ -191,7 +195,6 @@ data class AppStrings(
     val permissionAllowAlways: String,
     val permissionReject: String,
     val permissionRejectReason: String,
-    val permissionConfirmTitle: String,
     val questionTitle: String,
     val questionSubmit: String,
     val questionDismiss: String,
@@ -217,15 +220,12 @@ data class AppStrings(
     val addFirstServer: String,
     val serverName: String,
     val serverNamePlaceholder: String,
-    val serverHost: String,
     val saveAndConnect: String,
     val deleteServer: String,
     val deleteServerConfirm: String,
     val serverConnected: String,
-    val switchServer: String,
     val addServerTitle: String,
     val editServerTitle: String,
-    val serverList: String,
 
     // Memo panel
     val memoPanel: String,
@@ -248,8 +248,6 @@ data class AppStrings(
     val noSearchResults: String,
 
     // Status
-    val statusBusy: String,
-    val statusIdle: String,
 
     // Density
     val densityDefault: String,
@@ -264,6 +262,42 @@ data class AppStrings(
     val selectionConfigure: String,
     val selectionConfirm: String,
     val selectionCancel: String,
+    val commandTitle: String,
+    val commandLoadFailed: String,
+    val commandRetry: String,
+    val commandEmpty: String,
+    val commandClose: String,
+    val commandTapHint: String,
+
+    // Settings
+    val settingsTitle: String,
+    val settingsLanguage: String,
+    val settingsLanguageZh: String,
+    val settingsLanguageEn: String,
+    val settingsAppearance: String,
+    val settingsDarkMode: String,
+    val settingsNotifications: String,
+    val settingsAbout: String,
+    val settingsCheckUpdate: String,
+    val settingsExportLogs: String,
+    val logExportNoLogs: String,
+
+    // Keep alive (power saving)
+    val settingsKeepAlive: String,
+    val keepAliveDesc: String,
+    val batteryOptimization: String,
+    val batteryOptimizationDesc: String,
+    val batteryOptimizationIgnored: String,
+    val batteryOptimizationNotIgnored: String,
+    val batteryOptimizationAction: String,
+
+    // Recent sessions
+    val recentTitle: String,
+    val recentEmpty: String,
+    val recentEmptyHint: String,
+    val openAllProjects: String,
+    val recentTimeFormat: String,
+    val recentDeleteConfirm: String,
 )
 
 // ─── English ───────────────────────────────────────────────────────
@@ -288,10 +322,8 @@ val enStrings = AppStrings(
     connecting = "Connecting...",
     tipsTitle = "Quick Tips",
     tipsContent = "1. Run on PC: opencode serve --hostname=0.0.0.0 --port=4096\n2. Ensure phone and PC are on the same network\n3. Check PC firewall allows the port",
-    helpLabel = "Help",
 
     // Sessions
-    sessionList = "Sessions",
     projects = "Projects",
     sessions = "sessions",
     serverPath = "Server Path",
@@ -305,14 +337,13 @@ val enStrings = AppStrings(
     moreActions = "More",
     close = "Close",
     hideChildSessions = "Hide child sessions",
-    showChildSessions = "Show child sessions",
     expandChildren = "Expand child sessions",
     collapseChildren = "Collapse child sessions",
 
     // Chat
     sendFirstMsg = "Send a message to start",
     inputPlaceholder = "Type a message...",
-    thinking = "thinking...",
+    loadingOlder = "Loading earlier messages...",
     thinkingActive = "💭 Thinking...",
     thought = "💭 Thought",
     thoughtForSeconds = "💭 Thought for %ds",
@@ -323,10 +354,6 @@ val enStrings = AppStrings(
     redo = "Redo",
     todoTitle = "Todo List",
     noTodos = "No tasks yet",
-    toolCalls = "tool calls",
-    defaultAgent = "Default",
-    selectAgent = "Select Agent",
-    agentLoadFailed = "Failed to load agents",
     me = "Me",
     expand = "Expand",
     collapse = "Collapse",
@@ -421,6 +448,7 @@ val enStrings = AppStrings(
     errAbortFailed = "Abort failed: %s",
     errUndoFailed = "Undo failed: %s",
     errRedoFailed = "Redo failed: %s",
+    errCommandFailed = "Command failed: %s",
 
     updateAvailable = "Update Available",
     updateDownload = "Download",
@@ -428,10 +456,16 @@ val enStrings = AppStrings(
     updateChangelog = "Changelog",
     updateChecking = "Checking for updates...",
     updateUpToDate = "Already up to date",
-    updateGithubFailed = "GitHub connection failed. Please connect to a suitable network.",
     notificationRunning = "OConnector is running",
-    notificationChannelName = "OConnector Service",
-    notificationChannelDesc = "Keeps connection to server alive",
+    notificationsDesc = "Notify when AI needs your action or finishes tasks",
+    connectedTo = "Connected to %s",
+    notificationSubtext = "Tap to open and respond",
+    notificationBlockedTitle = "Waiting for your reply",
+    notificationPermissionBody = "AI is requesting: %s",
+    notificationQuestionBody = "AI is waiting for your answer: %s",
+    notificationBlockedBody = "AI may be waiting for your response",
+    notificationRunDoneTitle = "Task Completed",
+    notificationRunDoneBody = "%s's task completed",
     todoCompleted = "Tasks Completed",
     todoCompletedDesc = "%s's task list is completed",
 
@@ -441,7 +475,6 @@ val enStrings = AppStrings(
     permissionAllowAlways = "Always Allow",
     permissionReject = "Reject",
     permissionRejectReason = "Reject reason (optional)",
-    permissionConfirmTitle = "%s wants to %s %s",
     questionTitle = "Question",
     questionSubmit = "Submit",
     questionDismiss = "Dismiss",
@@ -467,15 +500,12 @@ val enStrings = AppStrings(
     addFirstServer = "Tap + to add your first OpenCode server",
     serverName = "Server Name",
     serverNamePlaceholder = "e.g. Home PC, Office Server",
-    serverHost = "Host",
     saveAndConnect = "Save & Connect",
     deleteServer = "Delete Server",
     deleteServerConfirm = "Delete this server? Saved credentials will be removed.",
     serverConnected = "Connected",
-    switchServer = "Switch Server",
     addServerTitle = "Add Server",
     editServerTitle = "Edit Server",
-    serverList = "Server List",
 
     // Memo panel
     memoPanel = "Memos",
@@ -498,8 +528,6 @@ val enStrings = AppStrings(
     noSearchResults = "No sessions found",
 
     // Status
-    statusBusy = "Busy",
-    statusIdle = "Idle",
 
     // Density
     densityDefault = "Default density",
@@ -514,6 +542,42 @@ val enStrings = AppStrings(
     selectionConfigure = "Configure",
     selectionConfirm = "Confirm",
     selectionCancel = "Cancel",
+    commandTitle = "Commands & Skills",
+    commandLoadFailed = "Failed to load command list",
+    commandRetry = "Retry",
+    commandEmpty = "No commands available",
+    commandClose = "Close",
+    commandTapHint = "Tap a command to fill it in the input box, then add arguments and send",
+
+    // Settings
+    settingsTitle = "Settings",
+    settingsLanguage = "Language",
+    settingsLanguageZh = "中文",
+    settingsLanguageEn = "English",
+    settingsAppearance = "Appearance",
+    settingsDarkMode = "Dark mode",
+    settingsNotifications = "Notifications",
+    settingsAbout = "About",
+    settingsCheckUpdate = "Check for updates",
+    settingsExportLogs = "Export logs",
+    logExportNoLogs = "No logs to export",
+
+    // Keep alive (power saving)
+    settingsKeepAlive = "Keep connection alive",
+    keepAliveDesc = "ON: persistent service with a notification. OFF: power saving — connection is kept in foreground and dropped in background.",
+    batteryOptimization = "Battery optimization",
+    batteryOptimizationDesc = "Exempting the app from battery optimization helps keep the connection stable.",
+    batteryOptimizationIgnored = "Exempted",
+    batteryOptimizationNotIgnored = "Not exempted",
+    batteryOptimizationAction = "Open settings",
+
+    // Recent sessions
+    recentTitle = "Recent",
+    recentEmpty = "No recent sessions",
+    recentEmptyHint = "Sessions you open will appear here",
+    openAllProjects = "All Projects",
+    recentTimeFormat = "%s ago",
+    recentDeleteConfirm = "Remove this session from recent?",
 )
 
 // ─── Chinese ───────────────────────────────────────────────────────
@@ -538,10 +602,8 @@ val zhStrings = AppStrings(
     connecting = "连接中...",
     tipsTitle = "\uD83D\uDCA1 使用提示",
     tipsContent = "1. 在 PC 上运行: opencode serve --hostname=0.0.0.0 --port=4096\n2. 确保手机与 PC 在同一局域网\n3. 检查 PC 防火墙是否允许该端口",
-    helpLabel = "帮助",
 
     // Sessions
-    sessionList = "会话列表",
     projects = "项目",
     sessions = "个会话",
     serverPath = "服务器路径",
@@ -555,14 +617,13 @@ val zhStrings = AppStrings(
     moreActions = "更多操作",
     close = "关闭",
     hideChildSessions = "隐藏子会话",
-    showChildSessions = "显示子会话",
     expandChildren = "展开子会话",
     collapseChildren = "折叠子会话",
 
     // Chat
     sendFirstMsg = "发送第一条消息开始对话",
     inputPlaceholder = "输入消息...",
-    thinking = "思考中...",
+    loadingOlder = "正在加载更早的消息...",
     thinkingActive = "💭 正在思考...",
     thought = "💭 思考",
     thoughtForSeconds = "💭 思考了 %d 秒",
@@ -573,10 +634,6 @@ val zhStrings = AppStrings(
     redo = "重做",
     todoTitle = "Todo 列表",
     noTodos = "暂无待办事项",
-    toolCalls = "个工具调用",
-    defaultAgent = "默认",
-    selectAgent = "选择 Agent",
-    agentLoadFailed = "Agent 加载失败",
     me = "我",
     expand = "展开",
     collapse = "收起",
@@ -671,6 +728,7 @@ val zhStrings = AppStrings(
     errAbortFailed = "中断失败: %s",
     errUndoFailed = "撤销失败: %s",
     errRedoFailed = "重做失败: %s",
+    errCommandFailed = "命令执行失败: %s",
 
     updateAvailable = "发现新版本",
     updateDownload = "下载",
@@ -678,12 +736,18 @@ val zhStrings = AppStrings(
     updateChangelog = "更新日志",
     updateChecking = "正在检查更新...",
     updateUpToDate = "已是最新版本",
-    updateGithubFailed = "GitHub 连接失败，请接入合适的网络环境",
     notificationRunning = "OConnector 正在运行",
-    notificationChannelName = "OConnector 服务",
-    notificationChannelDesc = "保持与服务器的连接",
+    notificationsDesc = "AI 需要操作或完成任务时通知",
+    connectedTo = "已连接 %s",
+    notificationSubtext = "点击查看并处理",
+    notificationBlockedTitle = "等你回复",
+    notificationPermissionBody = "AI 正在请求：%s",
+    notificationQuestionBody = "AI 正在等待你的回答：%s",
+    notificationBlockedBody = "检测到 AI 可能在等待回复",
+    notificationRunDoneTitle = "任务完成",
+    notificationRunDoneBody = "%s 的任务已完成",
     todoCompleted = "任务完成",
-    todoCompletedDesc = "%s的任务列表已完成",
+    todoCompletedDesc = "%s 的任务列表已完成",
 
     // Permission/Question bubbles
     permissionRequired = "需要授权",
@@ -691,7 +755,6 @@ val zhStrings = AppStrings(
     permissionAllowAlways = "始终允许",
     permissionReject = "拒绝",
     permissionRejectReason = "拒绝原因（可选）",
-    permissionConfirmTitle = "%s 想要 %s %s",
     questionTitle = "问题",
     questionSubmit = "提交",
     questionDismiss = "忽略",
@@ -717,15 +780,12 @@ val zhStrings = AppStrings(
     addFirstServer = "点击 + 添加第一台 OpenCode 服务器",
     serverName = "服务器名称",
     serverNamePlaceholder = "例如：家里电脑、公司服务器",
-    serverHost = "主机地址",
     saveAndConnect = "保存并连接",
     deleteServer = "删除服务器",
     deleteServerConfirm = "确定删除此服务器？保存的凭据将被清除。",
     serverConnected = "已连接",
-    switchServer = "切换服务器",
     addServerTitle = "添加服务器",
     editServerTitle = "编辑服务器",
-    serverList = "服务器列表",
 
     // Memo panel
     memoPanel = "备忘录",
@@ -748,8 +808,6 @@ val zhStrings = AppStrings(
     noSearchResults = "未找到会话",
 
     // Status
-    statusBusy = "忙碌",
-    statusIdle = "空闲",
 
     // Density
     densityDefault = "默认密度",
@@ -764,4 +822,40 @@ val zhStrings = AppStrings(
     selectionConfigure = "配置",
     selectionConfirm = "确认",
     selectionCancel = "取消",
+    commandTitle = "命令与技能",
+    commandLoadFailed = "加载命令列表失败",
+    commandRetry = "重试",
+    commandEmpty = "没有可用的命令",
+    commandClose = "关闭",
+    commandTapHint = "点击命令填入输入框，可补充参数后再发送",
+
+    // Settings
+    settingsTitle = "设置",
+    settingsLanguage = "语言",
+    settingsLanguageZh = "中文",
+    settingsLanguageEn = "English",
+    settingsAppearance = "外观",
+    settingsDarkMode = "深色模式",
+    settingsNotifications = "通知",
+    settingsAbout = "关于",
+    settingsCheckUpdate = "检查更新",
+    settingsExportLogs = "导出日志",
+    logExportNoLogs = "没有可导出的日志",
+
+    // Keep alive (power saving)
+    settingsKeepAlive = "保持连接",
+    keepAliveDesc = "开：常驻服务+通知保持连接。关：省电模式——前台保持连接，退后台自动断开。",
+    batteryOptimization = "电池优化",
+    batteryOptimizationDesc = "将应用设为不受电池优化限制，有助于保持连接稳定。",
+    batteryOptimizationIgnored = "已豁免",
+    batteryOptimizationNotIgnored = "未豁免",
+    batteryOptimizationAction = "打开设置",
+
+    // Recent sessions
+    recentTitle = "最近",
+    recentEmpty = "暂无最近会话",
+    recentEmptyHint = "打开过的会话会显示在这里",
+    openAllProjects = "全部项目",
+    recentTimeFormat = "%s前",
+    recentDeleteConfirm = "从最近列表移除该会话？",
 )

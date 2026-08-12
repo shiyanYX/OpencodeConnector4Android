@@ -1,8 +1,9 @@
 package com.opencode.remote.ui.serverlist
 
-import android.content.Intent
-import android.net.Uri
-import android.widget.Toast
+import android.Manifest
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
@@ -21,15 +22,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.core.app.NotificationManagerCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.opencode.remote.data.api.dto.ServerInfo
-import com.opencode.remote.data.download.DownloadHelper
-import com.opencode.remote.data.github.GitHubReleaseService
 import com.opencode.remote.ui.strings.AppLocale
-import com.opencode.remote.ui.update.UpdateDialog
-import com.opencode.remote.ui.update.UpdateUiState
-import com.opencode.remote.ui.update.UpdateViewModel
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -38,20 +35,29 @@ fun ServerListScreen(
     onAddServer: () -> Unit,
     onServerSelected: (serverId: String) -> Unit,
     onEditServer: (serverId: String) -> Unit,
-    onHelp: () -> Unit,
-    onToggleLanguage: () -> Unit,
+    onSettings: () -> Unit,
+    onOpenRecent: () -> Unit,
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val s = AppLocale.strings
 
-    val updateViewModel: UpdateViewModel = hiltViewModel()
-    val updateState by updateViewModel.uiState.collectAsStateWithLifecycle()
-    var showUpdateDialog by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
-    // Check for updates on first composition
-    LaunchedEffect(Unit) {
-        updateViewModel.checkForUpdate()
+    // Request POST_NOTIFICATIONS once after the first successful connection
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) {
+        viewModel.notificationPermissionRequestHandled()
+    }
+    LaunchedEffect(uiState.requestNotificationPermission) {
+        if (uiState.requestNotificationPermission &&
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            !NotificationManagerCompat.from(context).areNotificationsEnabled()
+        ) {
+            permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } else if (uiState.requestNotificationPermission) {
+            viewModel.notificationPermissionRequestHandled()
+        }
     }
 
     Scaffold(
@@ -59,22 +65,13 @@ fun ServerListScreen(
             TopAppBar(
                 title = { Text(s.servers) },
                 actions = {
-                    // Update button — appears when new version available
-                    if (updateState is UpdateUiState.Available) {
-                        IconButton(onClick = { showUpdateDialog = true }) {
-                            Icon(
-                                imageVector = Icons.Default.Download,
-                                contentDescription = "Update available",
-                                tint = MaterialTheme.colorScheme.primary,
-                            )
+                    if (uiState.connectedServerId != null) {
+                        IconButton(onClick = onOpenRecent) {
+                            Icon(Icons.Default.History, contentDescription = s.recentTitle)
                         }
                     }
-                    IconButton(onClick = onHelp) {
-                        @Suppress("DEPRECATION")
-                        Icon(Icons.Default.HelpOutline, contentDescription = s.helpLabel)
-                    }
-                    IconButton(onClick = onToggleLanguage) {
-                        Icon(Icons.Default.Translate, contentDescription = "Language")
+                    IconButton(onClick = onSettings) {
+                        Icon(Icons.Default.Settings, contentDescription = s.settingsTitle)
                     }
                     IconButton(onClick = onAddServer) {
                         Icon(Icons.Default.Add, contentDescription = s.addServer)
@@ -89,7 +86,10 @@ fun ServerListScreen(
                 .padding(innerPadding),
         ) {
             if (uiState.servers.isEmpty()) {
-                EmptyServerList(modifier = Modifier.weight(1f))
+                EmptyServerList(
+                    onAddServer = onAddServer,
+                    modifier = Modifier.weight(1f),
+                )
             } else {
                 LazyColumn(
                     modifier = Modifier
@@ -102,7 +102,11 @@ fun ServerListScreen(
                         ServerCard(
                             server = server,
                             isConnected = server.id == uiState.connectedServerId,
-                            onClick = { onServerSelected(server.id) },
+                            onClick = {
+                                // Tapping the already-connected server opens Recent instead of reconnecting
+                                if (server.id == uiState.connectedServerId) onOpenRecent()
+                                else onServerSelected(server.id)
+                            },
                             onEdit = { onEditServer(server.id) },
                             onDelete = { viewModel.deleteServer(server.id) },
                             modifier = Modifier.animateItemPlacement(tween(300)),
@@ -110,78 +114,15 @@ fun ServerListScreen(
                     }
                 }
             }
-
-            // Tips card at the bottom
-            Card(
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                ),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = s.tipsTitle,
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = s.tipsContent,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        lineHeight = MaterialTheme.typography.bodySmall.lineHeight,
-                    )
-                }
-            }
-        }
-    }
-
-    // Update dialog
-    if (showUpdateDialog && updateState is UpdateUiState.Available) {
-        val avail = updateState as UpdateUiState.Available
-        UpdateDialog(
-            version = avail.version,
-            changelog = avail.changelog,
-            changelogTitle = s.updateChangelog,
-            downloadText = s.updateDownload,
-            closeText = s.updateClose,
-            noChangelogText = "No changelog provided.",
-            onDownload = {
-                showUpdateDialog = false
-                if (avail.downloadUrl != null) {
-                    val proxiedUrl = GitHubReleaseService.proxiedDownloadUrl(avail.downloadUrl)
-                    DownloadHelper.downloadApk(
-                        context,
-                        proxiedUrl,
-                        "OConnector-v${avail.version}.apk"
-                    )
-                    Toast.makeText(context, "Download started", Toast.LENGTH_SHORT).show()
-                } else {
-                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(avail.releaseUrl))
-                    context.startActivity(intent)
-                }
-            },
-            onDismiss = { showUpdateDialog = false }
-        )
-    }
-
-    // Show update error as a Toast so the user knows what happened
-    var lastShownError by remember { mutableStateOf("") }
-    LaunchedEffect(updateState) {
-        if (updateState is UpdateUiState.Error) {
-            val msg = (updateState as UpdateUiState.Error).message
-            if (msg != lastShownError) {
-                lastShownError = msg
-                Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
-            }
         }
     }
 }
 
 @Composable
-private fun EmptyServerList(modifier: Modifier = Modifier) {
+private fun EmptyServerList(
+    onAddServer: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val s = AppLocale.strings
 
     Column(
@@ -211,6 +152,40 @@ private fun EmptyServerList(modifier: Modifier = Modifier) {
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        Button(onClick = onAddServer) {
+            Icon(Icons.Default.Add, contentDescription = null)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(s.addServer)
+        }
+
+        Spacer(modifier = Modifier.height(32.dp))
+
+        Card(
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant,
+            ),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp),
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text(
+                    text = s.tipsTitle,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = s.tipsContent,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    lineHeight = MaterialTheme.typography.bodySmall.lineHeight,
+                )
+            }
+        }
     }
 }
 
@@ -287,6 +262,23 @@ private fun ServerCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+            }
+
+            IconButton(onClick = onEdit) {
+                Icon(
+                    imageVector = Icons.Default.Edit,
+                    contentDescription = s.editServer,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+            IconButton(onClick = { showDeleteConfirm = true }) {
+                Icon(
+                    imageVector = Icons.Default.Delete,
+                    contentDescription = s.deleteServer,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(20.dp),
+                )
             }
 
             Icon(

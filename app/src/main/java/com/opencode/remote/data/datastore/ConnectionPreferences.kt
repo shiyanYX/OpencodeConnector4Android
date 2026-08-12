@@ -72,6 +72,8 @@ class ConnectionPreferences @Inject constructor(
         val DARK_MODE = booleanPreferencesKey("app_dark_mode")
         val HIDE_CHILD_SESSIONS = booleanPreferencesKey("hide_child_sessions")
         val LIST_DENSITY = stringPreferencesKey("list_density")
+        val NOTIFICATIONS_ENABLED = booleanPreferencesKey("notifications_enabled")
+        val KEEP_ALIVE = booleanPreferencesKey("keep_alive_enabled")
     }
 
     private val masterKey by lazy {
@@ -147,11 +149,11 @@ class ConnectionPreferences @Inject constructor(
 
     val language: Flow<String> = context.dataStore.data
         .map { prefs ->
-            prefs[Keys.LANGUAGE] ?: "en"
+            prefs[Keys.LANGUAGE] ?: "zh"
         }
         .catch { e ->
             Log.e(TAG, "Failed to read language", e)
-            emit("en")
+            emit("zh")
         }
 
     val darkMode: Flow<Boolean> = context.dataStore.data
@@ -210,6 +212,46 @@ class ConnectionPreferences @Inject constructor(
             context.dataStore.edit { it[Keys.LIST_DENSITY] = density }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to save list density", e)
+        }
+    }
+
+    val notificationsEnabled: Flow<Boolean> = context.dataStore.data
+        .map { prefs ->
+            prefs[Keys.NOTIFICATIONS_ENABLED] ?: true
+        }
+        .catch { e ->
+            Log.e(TAG, "Failed to read notifications enabled", e)
+            emit(true)
+        }
+
+    suspend fun saveNotificationsEnabled(enabled: Boolean) {
+        try {
+            context.dataStore.edit { it[Keys.NOTIFICATIONS_ENABLED] = enabled }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to save notifications enabled", e)
+        }
+    }
+
+    /**
+     * Keep-alive mode: ON (default) runs the SSE foreground service with its
+     * always-on notification; OFF is power-saving — no foreground service, no
+     * persistent notification, connection kept while foregrounded and dropped
+     * in background (handled by [com.opencode.remote.service.KeepAliveLifecycleObserver]).
+     */
+    val keepAlive: Flow<Boolean> = context.dataStore.data
+        .map { prefs ->
+            prefs[Keys.KEEP_ALIVE] ?: true
+        }
+        .catch { e ->
+            Log.e(TAG, "Failed to read keep alive", e)
+            emit(true)
+        }
+
+    suspend fun saveKeepAlive(enabled: Boolean) {
+        try {
+            context.dataStore.edit { it[Keys.KEEP_ALIVE] = enabled }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to save keep alive", e)
         }
     }
 

@@ -110,14 +110,6 @@ class SessionsViewModel @Inject constructor(
         }
     }
 
-    fun toggleDarkMode() {
-        viewModelScope.launch {
-            val newValue = !AppLocale.darkMode
-            AppLocale.darkMode = newValue
-            prefs.saveDarkMode(newValue)
-        }
-    }
-
     private fun observeListDensity() {
         viewModelScope.launch {
             prefs.listDensity.collect { value ->
@@ -130,6 +122,7 @@ class SessionsViewModel @Inject constructor(
     fun toggleDensity() {
         viewModelScope.launch {
             val newValue = if (_uiState.value.listDensity == ListDensity.DEFAULT) "compact" else "default"
+            Log.d(TAG, "toggleDensity: ${_uiState.value.listDensity} -> $newValue")
             prefs.saveListDensity(newValue)
         }
     }
@@ -180,9 +173,12 @@ class SessionsViewModel @Inject constructor(
                     it.copy(
                         sessions = visibleSessions,
                         isLoading = false,
+                        error = null,
                         groupedSessions = groupSessionsByTime(visibleSessions),
                     )
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to load sessions", e)
                 val s = com.opencode.remote.ui.strings.AppLocale.strings
@@ -212,9 +208,11 @@ class SessionsViewModel @Inject constructor(
     fun loadAgents() {
         viewModelScope.launch {
             try {
-                repository.listAgents()
-                _uiState.update { it.copy(availableAgentsError = false) }
-            } catch (e: Exception) {
+repository.listAgents()
+                    _uiState.update { it.copy(availableAgentsError = false) }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
                 Log.e(TAG, "Failed to load agents", e)
                 _uiState.update { it.copy(availableAgentsError = true) }
             }
@@ -260,6 +258,8 @@ class SessionsViewModel @Inject constructor(
                 loadSessions()
                 _uiState.update { it.copy(isCreating = false) }
                 _creationEvents.emit(response.id)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to create session", e)
                 val s = com.opencode.remote.ui.strings.AppLocale.strings
@@ -275,6 +275,8 @@ class SessionsViewModel @Inject constructor(
             try {
                 repository.deleteSession(sessionId, directory)
                 loadSessions()
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to delete session", e)
                 val s = com.opencode.remote.ui.strings.AppLocale.strings
@@ -288,6 +290,8 @@ class SessionsViewModel @Inject constructor(
             try {
                 repository.forkSession(sessionId, directory)
                 loadSessions()
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to fork session", e)
                 val s = com.opencode.remote.ui.strings.AppLocale.strings
@@ -370,15 +374,43 @@ class SessionsViewModel @Inject constructor(
             try {
                 sseEventBus.events.collect { envelope ->
                     val type = envelope.event.payload.type
-                    if (type == "session.updated" || type == "session.created" || type == "session.deleted") {
-                        Log.d(TAG, "SSE session event: $type, refreshing sessions")
-                        if (type == "session.deleted") {
-                            val deletedId = envelope.event.payload.properties.sessionID
+                    val props = envelope.event.payload.properties
+                    when (type) {
+                        "session.updated" -> loadSessions()
+                        "session.created" -> loadSessions()
+                        "session.status" -> {
+                            // Real-time busy/idle wiring for the session list status dots.
+                            val sessionId = props.sessionID ?: return@collect
+                            val status = if (props.status?.type == "busy") SessionStatus.BUSY else SessionStatus.IDLE
+                            activeSessionStore.updateStatus(sessionId, status)
+                            Log.d(TAG, "SSE session.status: $type status=${props.status?.type} for $sessionId")
+                        }
+                        "session.idle" -> {
+                            val sessionId = props.sessionID ?: return@collect
+                            activeSessionStore.updateStatus(sessionId, SessionStatus.IDLE)
+                        }
+                        "session.execution.started" -> {
+                            val sessionId = props.sessionID ?: return@collect
+                            activeSessionStore.updateStatus(sessionId, SessionStatus.BUSY)
+                            Log.d(TAG, "SSE session.execution.started: busy for $sessionId")
+                        }
+                        "session.execution.succeeded",
+                        "session.execution.failed",
+                        "session.execution.interrupted",
+                        -> {
+                            val sessionId = props.sessionID ?: return@collect
+                            activeSessionStore.updateStatus(sessionId, SessionStatus.IDLE)
+                            Log.d(TAG, "SSE session.execution ended: idle for $sessionId")
+                        }
+                        "session.deleted" -> {
+                            Log.d(TAG, "SSE session event: session.deleted, refreshing sessions")
+                            val deletedId = props.sessionID
                             if (deletedId != null && deletedId in _uiState.value.expandedParents) {
                                 _uiState.update { it.copy(expandedParents = it.expandedParents - deletedId) }
                             }
+                            deletedId?.let { activeSessionStore.removeSession(it) }
+                            loadSessions()
                         }
-                        loadSessions()
                     }
                 }
             } catch (e: Exception) {
@@ -407,12 +439,21 @@ class SessionsViewModel @Inject constructor(
         pollingActive = true
         pollingJob?.cancel()
         pollingJob = viewModelScope.launch {
+            // First pass runs immediately: refresh statuses before the first 30s tick
+            // so the list shows busy/idle dots as soon as it appears.
+            refreshAllSessionStatuses()
             while (isActive && pollingActive) {
                 delay(30_000)  // 30-second interval (listAllSessions is expensive)
                 if (!pollingActive) break
                 loadSessions()
+                refreshAllSessionStatuses()
             }
         }
+    }
+
+    /** Polling fallback: sync statuses with GET /session/status (covers missed SSE events). */
+    private suspend fun refreshAllSessionStatuses() {
+        activeSessionStore.refreshAllStatuses(repository)
     }
 
     override fun onCleared() {

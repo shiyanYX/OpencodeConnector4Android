@@ -21,6 +21,7 @@ import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
@@ -45,6 +46,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.opencode.remote.data.api.dto.AgentInfo
+import com.opencode.remote.data.api.dto.CommandInfo
 import com.opencode.remote.data.api.dto.TodoItem
 import com.opencode.remote.ui.strings.AppLocale
 
@@ -315,4 +317,106 @@ internal fun SettingsButton(
             },
         )
     }
+}
+
+// ─── Command / Skill Picker ──────────────────────────────────────────────
+
+@Composable
+internal fun CommandPickerDialog(
+    commands: List<CommandInfo>,
+    isLoading: Boolean,
+    hasError: Boolean,
+    onDismiss: () -> Unit,
+    onRetry: () -> Unit,
+    onRun: (CommandInfo) -> Unit,
+) {
+    val s = AppLocale.strings
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Default.PlayCircle,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(s.commandTitle)
+            }
+        },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                when {
+                    isLoading -> {
+                        Text(
+                            text = s.commandLoadFailed,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+
+                    hasError -> {
+                        Text(
+                            text = s.commandLoadFailed,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Button(onClick = onRetry) {
+                            Text(s.commandRetry)
+                        }
+                    }
+
+                    commands.isEmpty() -> {
+                        Text(
+                            text = s.commandEmpty,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+
+                    else -> {
+                        commands.forEachIndexed { index, cmd ->
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { onRun(cmd) }
+                                    .padding(vertical = 10.dp),
+                            ) {
+                                Text(
+                                    text = "/${cmd.name}",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    fontWeight = FontWeight.Medium,
+                                )
+                                if (!cmd.description.isNullOrBlank()) {
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = cmd.description,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                            }
+                            if (index < commands.lastIndex) {
+                                HorizontalDivider()
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = s.commandTapHint,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(s.commandClose) }
+        },
+    )
 }

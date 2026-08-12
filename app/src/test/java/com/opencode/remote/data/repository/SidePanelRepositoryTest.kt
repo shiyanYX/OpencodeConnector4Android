@@ -30,6 +30,8 @@ import org.junit.Test
 class SidePanelRepositoryTest {
 
     private lateinit var apiClient: OConnectorApiClient
+    private lateinit var messageCache: com.opencode.remote.data.cache.MessageCache
+    private lateinit var preferences: com.opencode.remote.data.datastore.ConnectionPreferences
     private lateinit var sseClient: OConnectorSseClient
     private lateinit var context: Context
     private lateinit var json: Json
@@ -40,11 +42,13 @@ class SidePanelRepositoryTest {
     @Suppress("unchecked")
     fun setUp() {
         apiClient = mockk(relaxed = true)
+        messageCache = mockk(relaxed = true)
+        preferences = mockk(relaxed = true)
         sseClient = mockk(relaxed = true)
         context = mockk(relaxed = true)
         json = Json { ignoreUnknownKeys = true }
         networkMonitor = mockk(relaxed = true)
-        repository = OConnectorRepositoryImpl(apiClient, sseClient, context, json, networkMonitor)
+        repository = OConnectorRepositoryImpl(apiClient, sseClient, context, json, networkMonitor, messageCache, preferences)
 
         // Set connected=true via reflection to bypass connect()
         // (which requires Android framework classes for SseForegroundService)

@@ -11,6 +11,7 @@ import com.opencode.remote.data.datastore.ConnectionConfig
 import com.opencode.remote.data.network.NetworkMonitor
 import com.opencode.remote.service.SseForegroundService
 import io.mockk.clearAllMocks
+import io.mockk.mockkStatic
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
@@ -25,6 +26,8 @@ import org.junit.Test
 class ConnectionGenerationTest {
 
     private lateinit var apiClient: OConnectorApiClient
+    private lateinit var messageCache: com.opencode.remote.data.cache.MessageCache
+    private lateinit var preferences: com.opencode.remote.data.datastore.ConnectionPreferences
     private lateinit var sseClient: OConnectorSseClient
     private lateinit var context: Context
     private lateinit var json: Json
@@ -34,11 +37,21 @@ class ConnectionGenerationTest {
     @Before
     fun setUp() {
         apiClient = mockk(relaxed = true)
+        messageCache = mockk(relaxed = true)
+        preferences = mockk(relaxed = true)
         sseClient = mockk(relaxed = true)
         context = mockk(relaxed = true)
         json = Json { ignoreUnknownKeys = true }
         networkMonitor = mockk(relaxed = true)
-        repository = OConnectorRepositoryImpl(apiClient, sseClient, context, json, networkMonitor)
+        repository = OConnectorRepositoryImpl(apiClient, sseClient, context, json, networkMonitor, messageCache, preferences)
+
+        // Mock android.util.Log so repository logging does not hit unmocked framework calls
+        mockkStatic(android.util.Log::class)
+        every { android.util.Log.d(any(), any<String>()) } returns 0
+        every { android.util.Log.i(any(), any<String>()) } returns 0
+        every { android.util.Log.w(any(), any<String>()) } returns 0
+        every { android.util.Log.w(any(), any(), any<Throwable>()) } returns 0
+        every { android.util.Log.e(any(), any(), any<Throwable>()) } returns 0
 
         // Mock SseForegroundService companion object to prevent Android API calls
         mockkObject(SseForegroundService)

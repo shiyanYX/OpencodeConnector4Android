@@ -4,6 +4,7 @@ import android.util.Log
 import android.util.Base64
 import com.opencode.remote.data.api.dto.*
 import io.ktor.client.*
+import io.ktor.client.engine.*
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -13,9 +14,11 @@ import io.ktor.client.engine.okhttp.*
 import io.ktor.client.plugins.*
 import io.ktor.client.plugins.contentnegotiation.*
 import io.ktor.client.request.*
+import io.ktor.client.statement.bodyAsText
 import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
 import kotlinx.serialization.json.Json
+import java.io.IOException
 import javax.inject.Inject
 import java.net.URLEncoder
 import javax.net.ssl.SSLContext
@@ -42,38 +45,59 @@ class OConnectorApiClient @Inject constructor(
     private val json: Json,
 ) {
 
+    /** Test seam: inject a custom engine (e.g. Ktor MockEngine). */
+    internal constructor(json: Json, testEngine: HttpClientEngine) : this(json) {
+        this.testEngine = testEngine
+        client = createClient()
+    }
+
+    private var testEngine: HttpClientEngine? = null
     private var authHeader: String? = null
     private var insecureTrust: Boolean = false
 
     @OptIn(ExperimentalSerializationApi::class)
     private var client: HttpClient = createClient()
 
-    private fun createClient(insecureTrust: Boolean = false): HttpClient = HttpClient(OkHttp) {
-        install(ContentNegotiation) { json(json) }
-        install(HttpTimeout) {
-            requestTimeoutMillis = 30_000
-            connectTimeoutMillis = 10_000
-            socketTimeoutMillis = 30_000
-        }
-        defaultRequest {
-            contentType(ContentType.Application.Json)
-            authHeader?.let { header(HttpHeaders.Authorization, it) }
-        }
-        engine {
-            if (insecureTrust) {
-                val trustManager = object : X509TrustManager {
-                    override fun checkClientTrusted(chain: Array<X509Certificate>, authType: String) {}
-                    override fun checkServerTrusted(chain: Array<X509Certificate>, authType: String) {}
-                    override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
-                }
-                val sslContext = SSLContext.getInstance("TLS")
-                sslContext.init(null, arrayOf<TrustManager>(trustManager), java.security.SecureRandom())
-                config {
-                    sslSocketFactory(sslContext.socketFactory, trustManager)
-                    hostnameVerifier { _, _ -> true }
+    private fun createClient(insecureTrust: Boolean = false, baseUrl: String = ""): HttpClient {
+        val test = testEngine
+        if (test != null) {
+            return HttpClient(test) {
+                install(ContentNegotiation) { json(json) }
+                defaultRequest {
+                    if (baseUrl.isNotBlank()) url(baseUrl)
+                    contentType(ContentType.Application.Json)
+                    authHeader?.let { header(HttpHeaders.Authorization, it) }
                 }
             }
         }
+        return HttpClient(OkHttp) {
+                install(ContentNegotiation) { json(json) }
+                install(HttpTimeout) {
+                    requestTimeoutMillis = 30_000
+                    connectTimeoutMillis = 10_000
+                    socketTimeoutMillis = 30_000
+                }
+                defaultRequest {
+                    if (baseUrl.isNotBlank()) url(baseUrl)
+                    contentType(ContentType.Application.Json)
+                    authHeader?.let { header(HttpHeaders.Authorization, it) }
+                }
+                engine {
+                    if (insecureTrust) {
+                        val trustManager = object : X509TrustManager {
+                            override fun checkClientTrusted(chain: Array<X509Certificate>, authType: String) {}
+                            override fun checkServerTrusted(chain: Array<X509Certificate>, authType: String) {}
+                            override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
+                        }
+                        val sslContext = SSLContext.getInstance("TLS")
+                        sslContext.init(null, arrayOf<TrustManager>(trustManager), java.security.SecureRandom())
+                        config {
+                            sslSocketFactory(sslContext.socketFactory, trustManager)
+                            hostnameVerifier { _, _ -> true }
+                        }
+                    }
+                }
+            }
     }
 
     companion object {
@@ -95,34 +119,7 @@ class OConnectorApiClient @Inject constructor(
                 Base64.NO_WRAP
             )
         } else null
-        client = HttpClient(OkHttp) {
-            install(ContentNegotiation) { json(json) }
-            install(HttpTimeout) {
-                requestTimeoutMillis = 30_000
-                connectTimeoutMillis = 10_000
-                socketTimeoutMillis = 30_000
-            }
-            defaultRequest {
-                url(baseUrl)
-                contentType(ContentType.Application.Json)
-                authHeader?.let { header(HttpHeaders.Authorization, it) }
-            }
-            engine {
-                if (insecureTrust) {
-                    val trustManager = object : X509TrustManager {
-                        override fun checkClientTrusted(chain: Array<X509Certificate>, authType: String) {}
-                        override fun checkServerTrusted(chain: Array<X509Certificate>, authType: String) {}
-                        override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
-                    }
-                    val sslContext = SSLContext.getInstance("TLS")
-                    sslContext.init(null, arrayOf<TrustManager>(trustManager), java.security.SecureRandom())
-                    config {
-                        sslSocketFactory(sslContext.socketFactory, trustManager)
-                        hostnameVerifier { _, _ -> true }
-                    }
-                }
-            }
-        }
+        client = createClient(insecureTrust, baseUrl)
     }
 
     /** Encode directory path for HTTP header (RFC 7230: headers are ASCII-only). */
@@ -221,24 +218,26 @@ class OConnectorApiClient @Inject constructor(
      *
      * Memory optimization:
      * 1. Server-side: passes ?limit=N to only fetch recent messages (prevents huge response)
-     * 2. Client-side: caps to [MAX_MESSAGES] as safety net
+     * 2. Client-side: caps response to the requested limit as safety net
      *
-     * The OpenCode server supports ?limit=N (cursor-based pagination).
-     * Without it, ALL messages including huge tool outputs are returned → OOM.
+     * The OpenCode server supports ?limit=N (cursor-based pagination: returns the most
+     * recent N messages). Without it, ALL messages including huge tool outputs are
+     * returned → OOM. Larger limit → older history is included (used by pagination).
      */
     suspend fun getMessages(id: String, directory: String? = null, limit: Int? = null): List<MessageInfo> {
+        val requested = limit ?: MAX_MESSAGES
         val messages = client.get("/session/$id/message") {
-            parameter("limit", limit ?: MAX_MESSAGES)
+            parameter("limit", requested)
             directory?.let {
                 parameter("directory", it)
                 header("x-opencode-directory", encDir(it))
             }
         }.body<List<MessageInfo>>()
 
-        // Safety net: if server ignores limit or returns more
-        return if (messages.size > MAX_MESSAGES) {
-            Log.w(TAG, "Server returned ${messages.size} messages despite limit=$MAX_MESSAGES, truncating")
-            messages.takeLast(MAX_MESSAGES)
+        // Safety net: if server ignores requested limit and returns more
+        return if (messages.size > requested) {
+            Log.w(TAG, "Server returned ${messages.size} messages despite limit=$requested, truncating")
+            messages.takeLast(requested)
         } else {
             messages
         }
@@ -251,12 +250,19 @@ class OConnectorApiClient @Inject constructor(
      */
     suspend fun sendMessage(sessionId: String, text: String, agent: String? = null, providerID: String? = null, modelID: String? = null, variant: String? = null, directory: String? = null) {
         val modelRef = if (providerID != null || modelID != null) ModelRef(providerID, modelID) else null
-        client.post("/session/$sessionId/prompt_async") {
+        val response = client.post("/session/$sessionId/prompt_async") {
             setBody(SendMessageRequest(parts = listOf(SendMessagePart(text = text)), agent = agent, model = modelRef, variant = variant))
             directory?.let {
                 parameter("directory", it)
                 header("x-opencode-directory", encDir(it))
             }
+        }
+        if (response.status.value !in 200..299) {
+            // Server-side rejection (e.g. "Free usage exceeded, subscribe to Go" from
+            // the usage gate). Surface the server's own message so the chat UI can
+            // show exactly what went wrong instead of a silent fire-and-forget send.
+            val errorBody = try { response.bodyAsText().take(2000) } catch (_: Exception) { "" }
+            throw IOException("HTTP ${response.status.value}${if (errorBody.isNotBlank()) ": $errorBody" else ""}")
         }
     }
 
@@ -437,6 +443,46 @@ class OConnectorApiClient @Inject constructor(
     /** GET /provider → returns provider list with models and connected status */
     suspend fun listProviders(): ProviderList =
         client.get("/provider").body<ProviderList>()
+
+    // ─── Commands / Skills ──────────────────────────────────────────────
+
+    /** GET /command → returns registered slash commands (and skills). */
+    suspend fun listCommands(directory: String? = null): List<CommandInfo> =
+        client.get("/command") {
+            directory?.let {
+                parameter("directory", it)
+                header("x-opencode-directory", encDir(it))
+            }
+        }.body<List<CommandInfo>>()
+
+    /** POST /session/{id}/command → runs a slash command in a session, returns the created message. */
+    suspend fun runCommand(
+        sessionId: String,
+        command: String,
+        arguments: String = "",
+        agent: String? = null,
+        providerID: String? = null,
+        modelID: String? = null,
+        directory: String? = null,
+    ) {
+        client.post("/session/$sessionId/command") {
+            setBody(
+                RunCommandRequest(
+                    command = command,
+                    arguments = arguments,
+                    agent = agent,
+                    model = if (providerID != null || modelID != null) {
+                        CommandModelRef(providerID, modelID)
+                    } else null,
+                )
+            )
+            directory?.let {
+                parameter("directory", it)
+                header("x-opencode-directory", encDir(it))
+            }
+        }
+        Log.d(TAG, "Command executed: /$command in session=$sessionId")
+    }
 
     fun close() {
         try { client.close() } catch (_: Exception) {}

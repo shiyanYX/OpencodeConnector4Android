@@ -27,18 +27,21 @@ import com.opencode.remote.ui.sessions.SessionsScreen
 import com.opencode.remote.ui.sessions.ProjectSessionsScreen
 import com.opencode.remote.ui.chat.ChatScreen
 import com.opencode.remote.ui.help.HelpScreen
-import com.opencode.remote.ui.strings.AppLocale
+import com.opencode.remote.ui.recent.RecentScreen
+import com.opencode.remote.ui.recent.RecentViewModel
+import com.opencode.remote.ui.settings.SettingsScreen
 import com.opencode.remote.ui.update.UpdateViewModel
 
 object Routes {
     const val SERVER_LIST = "serverList"
     const val ADD_SERVER = "addServer"
-    const val CONNECTION = "connection"
     const val EDIT_SERVER = "editServer/{serverId}"
+    const val RECENT = "recent"
     const val SESSIONS = "sessions"
     const val PROJECT_SESSIONS = "project/{directory}"
     const val CHAT = "chat/{sessionId}?directory={directory}"
     const val HELP = "help"
+    const val SETTINGS = "settings"
 
     fun chat(sessionId: String, directory: String? = null): String {
         val encodedDir = directory?.let { java.net.URLEncoder.encode(it, "UTF-8") } ?: ""
@@ -108,9 +111,9 @@ fun OConnectorApp(
                             popUpTo(Routes.SERVER_LIST) { inclusive = true }
                         }
                     } else {
-                        navController.navigate(Routes.SESSIONS) {
-                            popUpTo(Routes.SERVER_LIST) { inclusive = true }
-                        }
+                        // Keep SERVER_LIST on the stack so the Recent page's back
+                        // arrow returns to it without re-triggering navigation loops.
+                        navController.navigate(Routes.RECENT)
                     }
                 }
             }
@@ -120,10 +123,11 @@ fun OConnectorApp(
                 onAddServer = { navController.navigate(Routes.ADD_SERVER) },
                 onServerSelected = { serverId -> viewModel.connectToServer(serverId) },
                 onEditServer = { serverId -> navController.navigate(Routes.editServer(serverId)) },
-                onHelp = { navController.navigate(Routes.HELP) },
-                onToggleLanguage = {
-                    val newLang = if (AppLocale.language == "en") "zh" else "en"
-                    AppLocale.language = newLang
+                onSettings = { navController.navigate(Routes.SETTINGS) },
+                onOpenRecent = {
+                    navController.navigate(Routes.RECENT) {
+                        launchSingleTop = true
+                    }
                 },
             )
         }
@@ -133,8 +137,9 @@ fun OConnectorApp(
             ConnectionScreen(
                 mode = ConnectionMode.ADD_SERVER,
                 onConnected = {
-                    navController.navigate(Routes.SESSIONS) {
-                        popUpTo(Routes.SERVER_LIST) { inclusive = true }
+                    navController.navigate(Routes.RECENT) {
+                        // Keep SERVER_LIST as the stack bottom, drop ADD_SERVER itself
+                        popUpTo(Routes.SERVER_LIST)
                     }
                 },
                 onBack = { navController.popBackStack() },
@@ -152,18 +157,20 @@ fun OConnectorApp(
             )
         }
 
-        // === Connection (legacy, kept for backward compat) ===
-        composable(Routes.CONNECTION) {
-            ConnectionScreen(
-                onConnected = {
-                    navController.navigate(Routes.SESSIONS) {
-                        popUpTo(Routes.CONNECTION) { inclusive = true }
-                    }
+        // === Recent (landing page after connect) ===
+        composable(Routes.RECENT) {
+            val viewModel: RecentViewModel = hiltViewModel()
+            RecentScreen(
+                viewModel = viewModel,
+                onOpenSession = { sessionId, directory ->
+                    navController.navigate(Routes.chat(sessionId, directory))
                 },
+                onOpenAllProjects = { navController.navigate(Routes.SESSIONS) },
+                onBack = { navController.popBackStack() },
             )
         }
 
-        // === Sessions (updated: disconnect goes to SERVER_LIST) ===
+        // === Sessions (all projects) ===
         composable(Routes.SESSIONS) {
             SessionsScreen(
                 onProjectClick = { directory ->
@@ -232,12 +239,20 @@ fun OConnectorApp(
                 updateViewModel = updateVm,
             )
         }
+
+        // === Settings ===
+        composable(Routes.SETTINGS) {
+            SettingsScreen(
+                onBack = { navController.popBackStack() },
+                onHelp = { navController.navigate(Routes.HELP) },
+            )
+        }
     }
 }
 
 private fun navigateFromIntent(intent: Intent, navController: NavController, pendingDeepLink: MutableState<Pair<String, String?>?>) {
     val sessionId = intent.getStringExtra("sessionId") ?: return
-    val directory = intent.getStringExtra("directory") ?: return
+    val directory = intent.getStringExtra("directory")
     // Only navigate if we're not already on the chat screen
     if (navController.currentDestination?.route?.startsWith("chat") == true) return
 
