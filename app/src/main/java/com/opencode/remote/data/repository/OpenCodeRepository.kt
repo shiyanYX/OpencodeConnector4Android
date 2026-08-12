@@ -17,8 +17,12 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import com.opencode.remote.data.cache.MessageCache
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
@@ -37,12 +41,39 @@ data class StreamingState(
 )
 
 /**
+ * Single source of truth for the connection lifecycle.
+ *
+ * Screens render connected state from this instead of per-ViewModel
+ * projections, so the "connected badge" can't go stale when navigating
+ * back to the server list (the old duplication caused the badge to reset
+ * to null on ViewModel recreation).
+ */
+sealed interface ConnectionStatus {
+    data object Disconnected : ConnectionStatus
+    data object Connecting : ConnectionStatus
+    data class Connected(val serverId: String) : ConnectionStatus
+    data class Failed(val message: String) : ConnectionStatus
+}
+
+/**
  * Interface for the OpenCode repository.
  * All methods map to actual OpenCode server v1.14.x API routes.
  */
 interface OConnectorRepository {
     val isConnected: Boolean
+    /** Single source of truth for the connection lifecycle (idle / connecting / connected / failed). */
+    val connectionState: StateFlow<ConnectionStatus>
     val currentGeneration: Long
+
+    /**
+     * Connect → verify reachability → start SSE if reachable.
+     *
+     * Converges the pipeline that used to be duplicated in every connect
+     * path (ServerList, Connection add/edit). Returns true on success; on
+     * failure the repository is left disconnected and [connectionState]
+     * carries [ConnectionStatus.Failed] with the failure reason.
+     */
+    suspend fun connectAndVerify(config: ConnectionConfig, serverName: String?): Boolean
 
     fun connect(config: ConnectionConfig)
     /** Start SSE foreground service and network monitor. Call AFTER testConnection() succeeds. */
@@ -179,6 +210,9 @@ class OConnectorRepositoryImpl @Inject constructor(
 
     private val connectionGeneration = java.util.concurrent.atomic.AtomicLong(0)
     override val currentGeneration: Long get() = connectionGeneration.get()
+
+    private val _connectionState = MutableStateFlow<ConnectionStatus>(ConnectionStatus.Disconnected)
+    override val connectionState: StateFlow<ConnectionStatus> = _connectionState.asStateFlow()
 
     @Volatile
     private var connected = false
@@ -344,6 +378,7 @@ class OConnectorRepositoryImpl @Inject constructor(
         connect(config)
         startSseService()
         activeServerId = serverId
+        _connectionState.value = ConnectionStatus.Connected(serverId)
         // Messages belong to a server — never leak one server's cache into another
         CoroutineScope(Dispatchers.IO).launch { messageCache.clearAll() }
     }
@@ -357,6 +392,7 @@ class OConnectorRepositoryImpl @Inject constructor(
      */
     override fun connect(config: ConnectionConfig) {
         if (connected) disconnect()
+        _connectionState.value = ConnectionStatus.Connecting
         val scheme = if (config.useTls) "https" else "http"
         val baseUrl = "$scheme://${config.host}:${config.port}"
 
@@ -364,6 +400,34 @@ class OConnectorRepositoryImpl @Inject constructor(
         sseClient.configure(baseUrl, config.username, config.password, config.autoReconnect, config.insecureTrust)
         connected = true
         connectionGeneration.incrementAndGet()
+    }
+
+    /**
+     * Single connection pipeline: configure → verify reachability → start SSE
+     * if reachable. On failure the repository is left disconnected and
+     * [connectionState] carries [ConnectionStatus.Failed].
+     */
+    override suspend fun connectAndVerify(config: ConnectionConfig, serverName: String?): Boolean {
+        _connectionState.value = ConnectionStatus.Connecting
+        return try {
+            withContext(Dispatchers.IO) { connect(config) }
+            setServerName(serverName)
+            val ok = withContext(Dispatchers.IO) { testConnection() }
+            if (ok) {
+                if (!config.serverId.isNullOrBlank()) activeServerId = config.serverId
+                startSseService()
+                _connectionState.value = ConnectionStatus.Connected(activeServerId ?: "")
+                true
+            } else {
+                disconnect()
+                _connectionState.value = ConnectionStatus.Failed("connection test failed")
+                false
+            }
+        } catch (e: Exception) {
+            try { disconnect() } catch (_: Exception) {}
+            _connectionState.value = ConnectionStatus.Failed(e.localizedMessage ?: e.javaClass.simpleName)
+            false
+        }
     }
 
     /**
@@ -457,6 +521,7 @@ class OConnectorRepositoryImpl @Inject constructor(
         activeSessionDirectory = null
         activeServerId = null
         activeServerName = null
+        _connectionState.value = ConnectionStatus.Disconnected
     }
 
     private fun requireClient(): OConnectorApiClient {

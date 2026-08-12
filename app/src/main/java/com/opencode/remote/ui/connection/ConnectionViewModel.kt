@@ -9,6 +9,7 @@ import com.opencode.remote.data.datastore.ConnectionConfig
 import com.opencode.remote.data.datastore.ConnectionPreferences
 import com.opencode.remote.data.datastore.ServerManager
 import com.opencode.remote.data.repository.OConnectorRepository
+import com.opencode.remote.data.repository.ConnectionStatus
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
@@ -151,58 +152,31 @@ class ConnectionViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.update { it.copy(isConnecting = true, error = null) }
 
-            try {
-                val config = ConnectionConfig(
-                    host = host,
-                    port = port,
-                    username = state.username.trim(),
-                    password = state.password,
-                    useTls = state.useTls,
-                    insecureTrust = state.insecureTrust,
-                )
+            val config = ConnectionConfig(
+                host = host,
+                port = port,
+                username = state.username.trim(),
+                password = state.password,
+                useTls = state.useTls,
+                insecureTrust = state.insecureTrust,
+            )
 
-                // 在 IO 线程创建 HttpClient（避免在主线程加载引擎/依赖）
-                withContext(Dispatchers.IO) {
-                    repository.connect(config)
-                }
-                repository.setServerName(state.serverName.trim())
-
+            // Single pipeline (connect → test → start SSE) with one error path
+            val ok = repository.connectAndVerify(config, state.serverName.trim().ifBlank { null })
+            if (ok) {
                 // Save preferences
                 preferences.saveConfig(config)
-
-                // Test connection on IO thread
-                val success = withContext(Dispatchers.IO) {
-                    repository.testConnection()
-                }
-
-                if (success) {
-                    // Only start SSE service after connection is confirmed reachable
-                    repository.startSseService()
-                    // Pre-load agent list for later use
-                    try {
-                        withContext(Dispatchers.IO) { repository.listAgents() }
-                    } catch (_: Exception) { /* non-critical */ }
-                    _uiState.update { it.copy(isConnecting = false, isConnected = true, requestNotificationPermission = true) }
-                } else {
-                    repository.disconnect()
-                    _uiState.update {
-                        it.copy(
-                            isConnecting = false,
-                            error = s.errCannotConnect
-                        )
-                    }
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Connection failed", e)
+                // Pre-load agent list for later use
                 try {
-                    repository.disconnect()
-                } catch (disconnectError: Exception) {
-                    Log.w(TAG, "Disconnect also failed", disconnectError)
-                }
+                    withContext(Dispatchers.IO) { repository.listAgents() }
+                } catch (_: Exception) { /* non-critical */ }
+                _uiState.update { it.copy(isConnecting = false, isConnected = true, requestNotificationPermission = true) }
+            } else {
+                val failure = repository.connectionState.value as? ConnectionStatus.Failed
                 _uiState.update {
                     it.copy(
                         isConnecting = false,
-                        error = s.errConnectionFailed.replace("%s", e.localizedMessage ?: e.javaClass.simpleName)
+                        error = if (failure != null) s.errConnectionFailed.replace("%s", failure.message) else s.errCannotConnect,
                     )
                 }
             }
@@ -308,37 +282,19 @@ class ConnectionViewModel @Inject constructor(
                     insecureTrust = state.insecureTrust,
                 )
 
-                withContext(Dispatchers.IO) { repository.connect(config) }
-                repository.setServerName(state.serverName.trim())
-
-                val success = withContext(Dispatchers.IO) { repository.testConnection() }
-
-                if (success) {
-                    // Only start SSE service after connection is confirmed reachable
-                    repository.startSseService()
+                // Single pipeline (connect → test → start SSE) with one error path
+                val ok = repository.connectAndVerify(config, state.serverName.trim().ifBlank { null })
+                if (ok) {
                     serverManager.saveLastActiveServerId(serverId)
                     _uiState.update { it.copy(isConnecting = false, isConnected = true, requestNotificationPermission = true) }
                 } else {
-                    repository.disconnect()
+                    val failure = repository.connectionState.value as? ConnectionStatus.Failed
                     _uiState.update {
                         it.copy(
                             isConnecting = false,
-                            error = s.errCannotConnect
+                            error = if (failure != null) s.errConnectionFailed.replace("%s", failure.message) else s.errCannotConnect,
                         )
                     }
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Save & connect failed", e)
-                try {
-                    repository.disconnect()
-                } catch (disconnectError: Exception) {
-                    Log.w(TAG, "Disconnect also failed", disconnectError)
-                }
-                _uiState.update {
-                    it.copy(
-                        isConnecting = false,
-                        error = s.errConnectionFailed.replace("%s", e.localizedMessage ?: e.javaClass.simpleName)
-                    )
                 }
             }
         }

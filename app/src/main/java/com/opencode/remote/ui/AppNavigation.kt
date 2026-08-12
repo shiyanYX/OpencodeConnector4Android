@@ -19,6 +19,7 @@ import androidx.navigation.NavController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import com.opencode.remote.data.repository.ConnectionStatus
 import com.opencode.remote.ui.connection.ConnectionMode
 import com.opencode.remote.ui.connection.ConnectionScreen
 import com.opencode.remote.ui.serverlist.ServerListScreen
@@ -100,10 +101,13 @@ fun OConnectorApp(
         composable(Routes.SERVER_LIST) {
             val viewModel: ServerListViewModel = hiltViewModel()
             val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+            // Connected id comes from the repository's single connection state.
+            val connState by viewModel.connectionState.collectAsStateWithLifecycle()
+            val connectedServerId = (connState as? ConnectionStatus.Connected)?.serverId
 
             // Auto-navigate when a server connects (handles both normal auto-connect and deep-link)
-            LaunchedEffect(uiState.connectedServerId) {
-                if (uiState.connectedServerId != null) {
+            LaunchedEffect(connectedServerId) {
+                if (connectedServerId != null) {
                     val deepLink = pendingDeepLink.value
                     if (deepLink != null) {
                         pendingDeepLink.value = null

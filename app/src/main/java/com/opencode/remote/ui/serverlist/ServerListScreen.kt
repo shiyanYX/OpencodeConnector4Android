@@ -26,6 +26,7 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.opencode.remote.data.api.dto.ServerInfo
+import com.opencode.remote.data.repository.ConnectionStatus
 import com.opencode.remote.ui.strings.AppLocale
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
@@ -40,6 +41,11 @@ fun ServerListScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val s = AppLocale.strings
+
+    // Connected server id now comes from the repository's single connection
+    // state, so the badge survives ViewModel recreation when returning home.
+    val connState by viewModel.connectionState.collectAsStateWithLifecycle()
+    val connectedServerId = (connState as? ConnectionStatus.Connected)?.serverId
 
     val context = LocalContext.current
 
@@ -65,7 +71,7 @@ fun ServerListScreen(
             TopAppBar(
                 title = { Text(s.servers) },
                 actions = {
-                    if (uiState.connectedServerId != null) {
+                    if (connectedServerId != null) {
                         IconButton(onClick = onOpenRecent) {
                             Icon(Icons.Default.History, contentDescription = s.recentTitle)
                         }
@@ -101,10 +107,10 @@ fun ServerListScreen(
                     items(uiState.servers, key = { it.id }) { server ->
                         ServerCard(
                             server = server,
-                            isConnected = server.id == uiState.connectedServerId,
+                            isConnected = server.id == connectedServerId,
                             onClick = {
                                 // Tapping the already-connected server opens Recent instead of reconnecting
-                                if (server.id == uiState.connectedServerId) onOpenRecent()
+                                if (server.id == connectedServerId) onOpenRecent()
                                 else onServerSelected(server.id)
                             },
                             onEdit = { onEditServer(server.id) },

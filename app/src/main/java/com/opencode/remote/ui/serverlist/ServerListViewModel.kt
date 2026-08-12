@@ -9,6 +9,7 @@ import com.opencode.remote.data.datastore.ConnectionConfig
 import com.opencode.remote.data.datastore.ConnectionPreferences
 import com.opencode.remote.data.datastore.ServerManager
 import com.opencode.remote.data.repository.OConnectorRepository
+import com.opencode.remote.data.repository.ConnectionStatus
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -31,7 +32,6 @@ class ServerListViewModel @Inject constructor(
     data class ServerListUiState(
         val servers: List<ServerInfo> = emptyList(),
         val isConnecting: Boolean = false,
-        val connectedServerId: String? = null,
         val error: String? = null,
         /** Set once after the first successful connection — UI should request POST_NOTIFICATIONS. */
         val requestNotificationPermission: Boolean = false,
@@ -39,6 +39,9 @@ class ServerListViewModel @Inject constructor(
 
     private val _uiState = MutableStateFlow(ServerListUiState())
     val uiState: StateFlow<ServerListUiState> = _uiState.asStateFlow()
+
+    /** Connection lifecycle from the repository — single source of truth, survives ViewModel recreation. */
+    val connectionState: StateFlow<ConnectionStatus> = repository.connectionState
 
     fun notificationPermissionRequestHandled() {
         _uiState.update { it.copy(requestNotificationPermission = false) }
@@ -93,46 +96,13 @@ class ServerListViewModel @Inject constructor(
                 insecureTrust = server.insecureTrust,
             )
 
-            try {
-                withContext(Dispatchers.IO) {
-                    repository.connect(config)
-                }
-                repository.setServerName(server.name)
-
-                val success = withContext(Dispatchers.IO) {
-                    repository.testConnection()
-                }
-
-                if (success) {
-                    // Only start SSE service after connection is confirmed reachable
-                    repository.startSseService()
-                    serverManager.saveLastActiveServerId(serverId)
-                    _uiState.update {
-                        it.copy(
-                            isConnecting = false,
-                            connectedServerId = serverId,
-                            requestNotificationPermission = true,
-                        )
-                    }
-                } else {
-                    repository.disconnect()
-                    _uiState.update {
-                        it.copy(isConnecting = false, error = "Connection test failed")
-                    }
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Connection failed", e)
-                try {
-                    repository.disconnect()
-                } catch (disconnectError: Exception) {
-                    Log.w(TAG, "Disconnect also failed", disconnectError)
-                }
-                _uiState.update {
-                    it.copy(
-                        isConnecting = false,
-                        error = e.localizedMessage ?: "Connection failed",
-                    )
-                }
+            // Single pipeline (connect → test → start SSE) with one error path
+            val ok = repository.connectAndVerify(config, server.name)
+            if (ok) {
+                serverManager.saveLastActiveServerId(serverId)
+                _uiState.update { it.copy(isConnecting = false, requestNotificationPermission = true) }
+            } else {
+                _uiState.update { it.copy(isConnecting = false, error = "Connection test failed") }
             }
         }
     }
