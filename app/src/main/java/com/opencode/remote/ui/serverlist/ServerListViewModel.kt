@@ -40,6 +40,18 @@ class ServerListViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(ServerListUiState())
     val uiState: StateFlow<ServerListUiState> = _uiState.asStateFlow()
 
+    /**
+     * Set once after a *user-initiated* connect succeeds — the navigation layer uses it to
+     * land on the Projects screen. Startup auto-connect (notification deep links) does NOT
+     * set it, so launching the app stays on the server list instead of skipping home.
+     */
+    private val _navigateToProjects = MutableStateFlow(false)
+    val navigateToProjects: StateFlow<Boolean> = _navigateToProjects.asStateFlow()
+
+    fun consumeNavigateToProjects() {
+        _navigateToProjects.value = false
+    }
+
     /** Connection lifecycle from the repository — single source of truth, survives ViewModel recreation. */
     val connectionState: StateFlow<ConnectionStatus> = repository.connectionState
 
@@ -60,16 +72,19 @@ class ServerListViewModel @Inject constructor(
                 _uiState.update { it.copy(servers = list) }
             }
         }
-        // Auto-connect to last active server at startup (for notification deep links)
+        // Auto-connect to last active server at startup (for notification deep links).
+        // navigateOnSuccess=false — the app should land on the server list, not skip home.
         viewModelScope.launch {
             val lastId = serverManager.lastActiveServerId.first()
             if (lastId != null && !repository.isConnected) {
-                connectToServer(lastId)
+                connect(lastId, navigateOnSuccess = false)
             }
         }
     }
 
-    fun connectToServer(serverId: String) {
+    fun connectToServer(serverId: String) = connect(serverId, navigateOnSuccess = true)
+
+    private fun connect(serverId: String, navigateOnSuccess: Boolean) {
         viewModelScope.launch {
             _uiState.update { it.copy(isConnecting = true, error = null) }
 
@@ -101,6 +116,7 @@ class ServerListViewModel @Inject constructor(
             if (ok) {
                 serverManager.saveLastActiveServerId(serverId)
                 _uiState.update { it.copy(isConnecting = false, requestNotificationPermission = true) }
+                if (navigateOnSuccess) _navigateToProjects.value = true
             } else {
                 _uiState.update { it.copy(isConnecting = false, error = "Connection test failed") }
             }

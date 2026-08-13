@@ -12,7 +12,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowForwardIos
 import androidx.compose.material.icons.filled.BatterySaver
 import androidx.compose.material.icons.filled.Check
@@ -43,7 +42,6 @@ import kotlinx.coroutines.launch
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
-    onBack: () -> Unit,
     onHelp: () -> Unit,
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
@@ -73,14 +71,12 @@ fun SettingsScreen(
     }
 
     Scaffold(
+        // The Settings screen is a bottom-nav tab; the NavigationBar below it handles the
+        // navigation-bar inset, so only the TopAppBar's status-bar inset applies here.
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             TopAppBar(
                 title = { Text(s.settingsTitle) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = s.helpBack)
-                    }
-                },
             )
         },
     ) { padding ->

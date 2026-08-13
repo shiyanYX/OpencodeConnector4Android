@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.ViewList
 import androidx.compose.material3.*
@@ -26,21 +25,18 @@ fun RecentScreen(
     viewModel: RecentViewModel,
     onOpenSession: (sessionId: String, directory: String?) -> Unit,
     onOpenAllProjects: () -> Unit,
-    onBack: () -> Unit,
 ) {
     val s = AppLocale.strings
     val entries by viewModel.entries.collectAsStateWithLifecycle()
     var pendingRemove by remember { mutableStateOf<RecentSessionEntry?>(null) }
 
     Scaffold(
+        // The Recent screen is a bottom-nav tab; the NavigationBar below it handles the
+        // navigation-bar inset, so only the TopAppBar's status-bar inset applies here.
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             TopAppBar(
                 title = { Text(s.recentTitle) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = s.helpBack)
-                    }
-                },
                 actions = {
                     // "All Projects" entry — always available, so the user can always
                     // open sessions beyond the 10 most recent ones.

@@ -36,8 +36,7 @@ fun ServerListScreen(
     onAddServer: () -> Unit,
     onServerSelected: (serverId: String) -> Unit,
     onEditServer: (serverId: String) -> Unit,
-    onSettings: () -> Unit,
-    onOpenRecent: () -> Unit,
+    onOpenProjects: () -> Unit,
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val s = AppLocale.strings
@@ -67,18 +66,13 @@ fun ServerListScreen(
     }
 
     Scaffold(
+        // The app-level bottom NavigationBar handles the navigation-bar inset below this
+        // screen; only the TopAppBar's own status-bar inset is needed here.
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             TopAppBar(
                 title = { Text(s.servers) },
                 actions = {
-                    if (connectedServerId != null) {
-                        IconButton(onClick = onOpenRecent) {
-                            Icon(Icons.Default.History, contentDescription = s.recentTitle)
-                        }
-                    }
-                    IconButton(onClick = onSettings) {
-                        Icon(Icons.Default.Settings, contentDescription = s.settingsTitle)
-                    }
                     IconButton(onClick = onAddServer) {
                         Icon(Icons.Default.Add, contentDescription = s.addServer)
                     }
@@ -109,8 +103,8 @@ fun ServerListScreen(
                             server = server,
                             isConnected = server.id == connectedServerId,
                             onClick = {
-                                // Tapping the already-connected server opens Recent instead of reconnecting
-                                if (server.id == connectedServerId) onOpenRecent()
+                                // Tapping the already-connected server opens Projects instead of reconnecting
+                                if (server.id == connectedServerId) onOpenProjects()
                                 else onServerSelected(server.id)
                             },
                             onEdit = { onEditServer(server.id) },

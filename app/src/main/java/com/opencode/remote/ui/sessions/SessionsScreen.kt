@@ -17,6 +17,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -60,6 +61,7 @@ private fun TimeGroup.label(s: AppStrings): String = when (this) {
 fun SessionsScreen(
     onProjectClick: (String) -> Unit,
     onDisconnected: () -> Unit,
+    onBack: () -> Unit,
     viewModel: SessionsViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -89,6 +91,11 @@ fun SessionsScreen(
                                 overflow = TextOverflow.Ellipsis,
                             )
                         }
+                    }
+                },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = s.helpBack)
                     }
                 },
                 actions = {
