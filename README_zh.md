@@ -8,6 +8,17 @@
 ![Kotlin](https://img.shields.io/badge/Kotlin-2.0-7F52FF?logo=kotlin)
 ![License](https://img.shields.io/badge/License-MIT-blue)
 
+## 设计文档
+
+系统化设计文档（架构、UI/UX、功能、协议、移植指南）：
+
+- [docs/README.md](docs/README.md) — 文档索引与项目总览
+- [docs/architecture.md](docs/architecture.md) — 分层架构、DI、状态管理、核心机制
+- [docs/ui-design.md](docs/ui-design.md) — 导航体系、页面设计、公共组件、主题、i18n
+- [docs/features.md](docs/features.md) — 功能规格
+- [docs/protocol.md](docs/protocol.md) — OpenCode 服务端协议（REST + SSE 事件）
+- [docs/porting-guide.md](docs/porting-guide.md) — 新系统移植指南
+
 ## 功能特性
 
 - **多服务器管理** — 在首页添加和切换多个 OpenCode 服务器

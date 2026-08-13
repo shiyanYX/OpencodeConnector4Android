@@ -8,6 +8,17 @@ An Android client for the [OpenCode](https://opencode.ai) AI coding assistant. C
 ![Kotlin](https://img.shields.io/badge/Kotlin-2.0-7F52FF?logo=kotlin)
 ![License](https://img.shields.io/badge/License-MIT-blue)
 
+## Design Docs
+
+Systematic design documentation (architecture, UI/UX, features, protocol, porting guide):
+
+- [docs/README.md](docs/README.md) — document index & project overview
+- [docs/architecture.md](docs/architecture.md) — layered architecture, DI, state management, core mechanisms
+- [docs/ui-design.md](docs/ui-design.md) — navigation, page design, components, theme, i18n
+- [docs/features.md](docs/features.md) — feature specifications
+- [docs/protocol.md](docs/protocol.md) — OpenCode server protocol (REST + SSE events)
+- [docs/porting-guide.md](docs/porting-guide.md) — porting guide for new systems
+
 ## Features
 
 - **Multi-server management** — add and switch between multiple OpenCode servers from the home screen
